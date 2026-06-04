@@ -4,15 +4,19 @@
 
 Preview PowerPoint (.pptx) files directly inside Obsidian without leaving your notes.
 
+> ⚠️ **注意 / Note**：当前版本仅提供简易预览，渲染效果有限（不含母版/版式装饰元素），后续版本将持续优化。建议配合「使用外部应用打开」按钮，用系统默认 PPT 应用（如 PowerPoint、Keynote、WPS）查看完整效果。
+>
+> Current version provides a simplified preview with limited rendering fidelity (master/layout decorations are not rendered). Full visual accuracy will be improved in future updates. Use the "Open with external app" button to view the complete presentation in your default PPT application.
+
 ## 功能特性 / Features
 
-- 📄 直接在 Obsidian 中预览 PPTX 文件
-- 🎨 渲染幻灯片内容：文本、图片、表格、形状
+- 📄 直接在 Obsidian 中简易预览 PPTX 文件（快速浏览内容）
+- 🎨 渲染幻灯片自身内容：文本、图片、表格、形状
 - 🌈 支持背景颜色、渐变、背景图片
 - 📐 保持原始幻灯片比例，自适应窗口大小
 - 📑 幻灯片导航（上一页/下一页/跳转）
 - 🔄 转换为 PDF（LibreOffice 无头模式 / Python 备用方案）
-- 📂 使用外部应用打开
+- 📂 使用外部默认 PPT 应用打开（查看完整效果）
 
 ## 安装插件 / Install Plugin
 
