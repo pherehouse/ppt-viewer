@@ -363,40 +363,27 @@ class PPTView extends FileView {
     const spTree = this.getElements(doc, 'spTree')[0];
     if (!spTree) return { elements, background };
   
-    // Parse shapes (text boxes and shapes)
-    const shapes = this.getElements(spTree, 'sp');
-    for (let i = 0; i < shapes.length; i++) {
-      const el = this.parseShapeElement(shapes[i]);
-      if (el) elements.push(el);
-    }
-  
-    // Parse pictures
-    const pics = this.getElements(spTree, 'pic');
-    for (let i = 0; i < pics.length; i++) {
-      const el = await this.parsePictureElement(pics[i], slideFile);
-      if (el) elements.push(el);
-    }
-  
-    // Parse graphic frames (tables, charts, etc.)
-    const graphicFrames = this.getElements(spTree, 'graphicFrame');
-    for (let i = 0; i < graphicFrames.length; i++) {
-      const el = await this.parseGraphicFrame(graphicFrames[i], slideFile);
-      if (el) elements.push(el);
+    // Parse shape tree - iterate direct children only
+    for (let i = 0; i < spTree.children.length; i++) {
+      const child = spTree.children[i];
+      const localName = child.localName;
+
+      if (localName === 'sp') {
+        const el = this.parseShapeElement(child);
+        if (el) elements.push(el);
+      } else if (localName === 'pic') {
+        const el = await this.parsePictureElement(child, slideFile);
+        if (el) elements.push(el);
+      } else if (localName === 'graphicFrame') {
+        const el = await this.parseGraphicFrame(child, slideFile);
+        if (el) elements.push(el);
+      } else if (localName === 'grpSp') {
+        const groupElements = await this.parseGroupShape(child, slideFile);
+        elements.push(...groupElements);
+      }
     }
 
-    // Parse group shapes - get shapes and pics inside groups
-    const grpSps = this.getElements(spTree, 'grpSp');
-    for (let i = 0; i < grpSps.length; i++) {
-      const groupElements = await this.parseGroupShape(grpSps[i], slideFile);
-      elements.push(...groupElements);
-    }
-
-    // Get inherited shapes from layout (middle z-layer) and master (lowest z-layer)
-    const masterShapes = await this.getMasterShapes(slideFile);
-    const layoutShapes = await this.getLayoutShapes(slideFile);
-
-    // Order: master (back) -> layout (middle) -> slide (front)
-    return { elements: [...masterShapes, ...layoutShapes, ...elements], background };
+    return { elements, background };
   }
 
   private hasPlaceholder(spEl: Element): boolean {
@@ -430,29 +417,25 @@ class PPTView extends FileView {
   private async parseShapeTreeFor(fileKey: string, spTree: Element, skipPlaceholders: boolean): Promise<SlideElement[]> {
     const elements: SlideElement[] = [];
 
-    const shapes = this.getElements(spTree, 'sp');
-    for (let i = 0; i < shapes.length; i++) {
-      if (skipPlaceholders && this.hasPlaceholder(shapes[i])) continue;
-      const el = this.parseShapeElement(shapes[i]);
-      if (el) elements.push(el);
-    }
+    // Only process DIRECT children of spTree (not descendants in nested groups)
+    for (let i = 0; i < spTree.children.length; i++) {
+      const child = spTree.children[i];
+      const localName = child.localName;
 
-    const pics = this.getElements(spTree, 'pic');
-    for (let i = 0; i < pics.length; i++) {
-      const el = await this.parsePictureElement(pics[i], fileKey);
-      if (el) elements.push(el);
-    }
-
-    const graphicFrames = this.getElements(spTree, 'graphicFrame');
-    for (let i = 0; i < graphicFrames.length; i++) {
-      const el = await this.parseGraphicFrame(graphicFrames[i], fileKey);
-      if (el) elements.push(el);
-    }
-
-    const grpSps = this.getElements(spTree, 'grpSp');
-    for (let i = 0; i < grpSps.length; i++) {
-      const groupElements = await this.parseGroupShape(grpSps[i], fileKey);
-      elements.push(...groupElements);
+      if (localName === 'sp') {
+        if (skipPlaceholders && this.hasPlaceholder(child)) continue;
+        const el = this.parseShapeElement(child);
+        if (el) elements.push(el);
+      } else if (localName === 'pic') {
+        const el = await this.parsePictureElement(child, fileKey);
+        if (el) elements.push(el);
+      } else if (localName === 'graphicFrame') {
+        const el = await this.parseGraphicFrame(child, fileKey);
+        if (el) elements.push(el);
+      } else if (localName === 'grpSp') {
+        const groupElements = await this.parseGroupShape(child, fileKey);
+        elements.push(...groupElements);
+      }
     }
 
     return elements;
@@ -481,7 +464,9 @@ class PPTView extends FileView {
     const spTree = this.getElements(layoutDoc, 'spTree')[0];
     if (!spTree) return [];
 
-    return await this.parseShapeTreeFor(layoutKey, spTree, true);
+    const elements = await this.parseShapeTreeFor(layoutKey, spTree, true);
+    console.log('[PPT Viewer] Layout shapes:', layoutKey, elements.length);
+    return elements;
   }
 
   private async getMasterShapes(slideFile: string): Promise<SlideElement[]> {
@@ -522,7 +507,9 @@ class PPTView extends FileView {
     const spTree = this.getElements(masterDoc, 'spTree')[0];
     if (!spTree) return [];
 
-    return await this.parseShapeTreeFor(masterKey, spTree, true);
+    const elements = await this.parseShapeTreeFor(masterKey, spTree, true);
+    console.log('[PPT Viewer] Master shapes:', masterKey, elements.length);
+    return elements;
   }
   
   private async parseGraphicFrame(gfEl: Element, slideFile: string): Promise<SlideElement | null> {
@@ -632,8 +619,10 @@ class PPTView extends FileView {
   
     // Check for shape fill
     let fillColor: string | undefined;
+    let hasFill = false;
     const spPr = this.getElements(spEl, 'spPr')[0];
     if (spPr) {
+      // Solid fill
       const solidFill = this.getElements(spPr, 'solidFill')[0];
       if (solidFill) {
         const srgbClr = this.getElements(solidFill, 'srgbClr')[0];
@@ -641,12 +630,69 @@ class PPTView extends FileView {
           const val = srgbClr.getAttribute('val');
           if (val) fillColor = `#${val}`;
         }
+        if (!fillColor) {
+          // Try schemeClr with lastClr attribute
+          const schemeClr = this.getElements(solidFill, 'schemeClr')[0];
+          if (schemeClr) {
+            const lastClr = schemeClr.getAttribute('lastClr');
+            if (lastClr) fillColor = `#${lastClr}`;
+          }
+        }
+        hasFill = true;
+      }
+
+      // Gradient fill - treat as having fill
+      if (!hasFill) {
+        const gradFill = this.getElements(spPr, 'gradFill')[0];
+        if (gradFill) {
+          hasFill = true;
+          // Extract first color for display
+          const gsLst = this.getElements(gradFill, 'gs');
+          if (gsLst.length > 0) {
+            const srgb = this.getElements(gsLst[0], 'srgbClr')[0];
+            if (srgb) {
+              const val = srgb.getAttribute('val');
+              if (val) fillColor = `#${val}`;
+            }
+          }
+        }
+      }
+
+      // Pattern fill
+      if (!hasFill) {
+        const pattFill = this.getElements(spPr, 'pattFill')[0];
+        if (pattFill) {
+          hasFill = true;
+          const fgClr = this.getElements(pattFill, 'fgClr')[0];
+          if (fgClr) {
+            const srgb = this.getElements(fgClr, 'srgbClr')[0];
+            if (srgb) {
+              const val = srgb.getAttribute('val');
+              if (val) fillColor = `#${val}`;
+            }
+          }
+        }
+      }
+
+      // Blip fill on shape (image texture)
+      if (!hasFill) {
+        const blipFill = this.getElements(spPr, 'blipFill')[0];
+        if (blipFill) hasFill = true;
+      }
+
+      // Line/outline with solid fill (decorative frames)
+      if (!hasFill) {
+        const ln = this.getDrawingElements(spPr, 'ln')[0];
+        if (ln) {
+          const lnFill = this.getElements(ln, 'solidFill')[0];
+          if (lnFill) hasFill = true;
+        }
       }
     }
   
     const hasText = paragraphs.some((p) => p.runs.some((r) => r.text.trim().length > 0));
   
-    if (!hasText && !fillColor) return null;
+    if (!hasText && !fillColor && !hasFill) return null;
   
     return {
       type: hasText ? "text" : "shape",
@@ -702,19 +748,24 @@ class PPTView extends FileView {
   
   private async parseGroupShape(grpEl: Element, slideFile: string): Promise<SlideElement[]> {
     const elements: SlideElement[] = [];
-  
-    const shapes = this.getElements(grpEl, 'sp');
-    for (let i = 0; i < shapes.length; i++) {
-      const el = this.parseShapeElement(shapes[i]);
-      if (el) elements.push(el);
+
+    for (let i = 0; i < grpEl.children.length; i++) {
+      const child = grpEl.children[i];
+      const localName = child.localName;
+
+      if (localName === 'sp') {
+        const el = this.parseShapeElement(child);
+        if (el) elements.push(el);
+      } else if (localName === 'pic') {
+        const el = await this.parsePictureElement(child, slideFile);
+        if (el) elements.push(el);
+      } else if (localName === 'grpSp') {
+        // Nested groups
+        const nested = await this.parseGroupShape(child, slideFile);
+        elements.push(...nested);
+      }
     }
-  
-    const pics = this.getElements(grpEl, 'pic');
-    for (let i = 0; i < pics.length; i++) {
-      const el = await this.parsePictureElement(pics[i], slideFile);
-      if (el) elements.push(el);
-    }
-  
+
     return elements;
   }
   

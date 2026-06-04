@@ -6,7 +6,6 @@
 
 - 📄 直接在 Obsidian 中预览 PPTX 文件
 - 🎨 完整渲染幻灯片内容：文本、图片、表格、形状
-- 🖼️ 支持母版和版式内容继承渲染
 - 🌈 支持背景颜色、渐变、背景图片
 - 📐 保持原始幻灯片比例，自适应窗口大小
 - 📑 幻灯片导航（上一页/下一页/跳转）
@@ -17,7 +16,7 @@
 
 ### 手动安装
 
-1. 下载最新 [Release](https://github.com/ppt-viewer/ppt-viewer/releases)
+1. 下载最新 [Release](https://github.com/pherehouse/ppt-viewer/releases)
 2. 解压到 Obsidian 插件目录：`<vault>/.obsidian/plugins/ppt-viewer/`
 3. 确保目录中包含 `main.js`、`manifest.json`、`styles.css`
 4. 重启 Obsidian，在设置 → 第三方插件中启用 PPT Viewer
@@ -25,7 +24,7 @@
 ### 从源码构建
 
 ```bash
-git clone https://github.com/ppt-viewer/ppt-viewer.git
+git clone https://github.com/pherehouse/ppt-viewer.git
 cd ppt-viewer
 npm install
 npm run build
@@ -69,7 +68,7 @@ npm run build
 - 使用 JSZip 解析 PPTX（本质为 ZIP 包含 XML）
 - 使用 DOMParser 解析 OOXML 命名空间
 - 固定内部分辨率 960×540px，通过 CSS transform 缩放适配
-- 幻灯片内容分层渲染：母版 → 版式 → 幻灯片
+- 只渲染幻灯片自身内容（文本、图片、表格、形状），简洁清晰
 
 ## 开发
 
