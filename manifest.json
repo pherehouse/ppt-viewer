@@ -1,0 +1,9 @@
+{
+  "id": "ppt-viewer",
+  "name": "PPT Viewer",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Preview PowerPoint (.pptx and .ppt) files directly within Obsidian.",
+  "author": "PPT Viewer",
+  "isDesktopOnly": false
+}

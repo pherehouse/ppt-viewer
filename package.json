@@ -1,0 +1,26 @@
+{
+  "name": "ppt-viewer",
+  "version": "1.0.0",
+  "description": "Obsidian plugin for previewing PowerPoint files",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "keywords": ["obsidian", "pptx", "powerpoint", "viewer", "presentation", "slide"],
+  "author": "ppt-viewer",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ppt-viewer/ppt-viewer.git"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.19.0",
+    "obsidian": "latest",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "jszip": "^3.10.1"
+  }
+}
