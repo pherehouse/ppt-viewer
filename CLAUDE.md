@@ -24,13 +24,18 @@ ppt-viewer/
 ├── main.js              # minified bundle（高风险直接编辑）
 ├── manifest.json        # 插件清单
 ├── styles.css           # 样式
-├── README.md
+├── README.md            # 用户使用说明（中英文）
 ├── README_ZH.md
 ├── docs/
-│   ├── publish-to-obsidian-market.md
-│   └── PROGRESS.md
+│   ├── publish-to-obsidian-market.md   # 发布流程指南：怎么发版、怎么提交到社区市场
+│   └── PROGRESS.md                     # 项目进展：开发历史、当前状态、待办
 └── tests/               # Node.js 回归测试（仅覆盖纯逻辑，不覆盖 Obsidian API）
 ```
+
+**去哪找什么：**
+- 要发新版 → `docs/publish-to-obsidian-market.md`
+- 要看项目做到哪了、还有什么没做 → `docs/PROGRESS.md`
+- 要看用户怎么用 → `README.md` / `README_ZH.md`
 
 ## 修改原则
 
