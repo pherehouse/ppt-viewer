@@ -4,42 +4,68 @@
 
 - **名称**：PPT Viewer
 - **类型**：Obsidian 插件
-- **路径**：`/Volumes/AIWS/AI_Project_OB/ppt-viewer`
+- **本地路径**：`/Volumes/AIWS/AI_Project_OB/ppt-viewer`
 - **GitHub**：`pherehouse/ppt-viewer`
 - **当前版本**：1.0.0
-- **当前状态**：已发布 Release，论坛提交 Pending 审核中
+- **当前状态**：已发布 Release，论坛提交 Pending 审核
+
+## 关键现实
+
+- **`main.js` 是 minified bundle（152KB，233 行）**，不是人类可读源码。项目中**没有 `package.json`、没有 esbuild 配置、没有源码目录**。之前 commit 提到 "esbuild build system"，但现在只剩 bundle 产物。
+- **直接编辑 `main.js` 风险高**：变量名被压缩（如 `Rt`, `wt`, `Lt`），一处改错可能破坏整个 bundle。优先用 **精确的小范围 Edit**，改前确认上下文唯一。
+- **无法重新 bundle**：没有构建配置，改完 `main.js` 只能直接用它，不能重新打包。
 
 ## 文件结构
 
 ```
 ppt-viewer/
-├── main.js              # 插件主代码（bundled，直接可加载）
+├── main.js              # minified bundle（高风险直接编辑）
 ├── manifest.json        # 插件清单
 ├── styles.css           # 样式
-├── README.md            # 英文文档
-├── README_ZH.md         # 中文文档
+├── README.md
+├── README_ZH.md
 ├── docs/
-│   ├── publish-to-obsidian-market.md   # 发布流程指南
-│   └── PROGRESS.md                     # 项目进展记录
-└── tests/               # 回归测试（Node.js 直接运行）
+│   ├── publish-to-obsidian-market.md
+│   └── PROGRESS.md
+└── tests/               # Node.js 回归测试（仅覆盖纯逻辑，不覆盖 Obsidian API）
 ```
 
-## 干活规则
+## 修改原则
 
-1. **主代码是 `main.js`**：这是 bundler 打包后的直接可加载文件，不是 TypeScript 源码项目。修改时直接编辑 `main.js`。
-2. **改完要更新 `manifest.json`**：特别是 `version` 字段，必须与 Git tag 一致。
-3. **改完要跑测试**：
-   ```bash
-   node tests/accurate-preview.test.js
-   node tests/group-transform.test.js
-   node tests/text-wrapping.test.js
-   node --check main.js
-   ```
-4. **发布流程**（如果需要发新版）：
-   - 改 `manifest.json` version
-   - commit + push
-   - `git tag -a x.x.x`
-   - `gh release create x.x.x main.js manifest.json styles.css`
-   - 论坛回复原帖通知更新
-5. **文档同步**：README、README_ZH、docs/ 里的文件改了要一起 push。
-6. **最小可执行**：不要引入新构建工具或重构目录，当前项目直接维护 `main.js` 即可。
+1. **优先改 `styles.css`**：安全、无风险。
+2. **改 `manifest.json`**：版本号、描述等简单字段。
+3. **改 `main.js` 要谨慎**：
+   - 用 Edit 做精确替换，old_string 要足够长确保唯一
+   - 避免改压缩后的变量名和模块引用
+   - 改完后跑 `node --check main.js` 做语法检查
+   - 改完后在 Obsidian 里实际加载测试（不能只靠语法检查）
+4. **不改目录结构、不加构建工具**：当前没有源码工程，加构建系统是另一回事，需用户明确要求。
+
+## 测试
+
+```bash
+# 纯逻辑回归测试（不涉及 Obsidian API）
+node tests/accurate-preview.test.js
+node tests/group-transform.test.js
+node tests/text-wrapping.test.js
+
+# 语法检查（通过不代表逻辑正确）
+node --check main.js
+```
+
+**重要**：`node --check` 只检查语法，不执行代码。真正的测试必须在 Obsidian 桌面端打开开发者模式加载插件验证。
+
+## 发布流程
+
+1. 改 `manifest.json` 中的 `version`（语义化版本）
+2. 如有兼容性变化，添加/更新 `versions.json`（当前项目没有，如需要可新建）
+3. commit + push
+4. `git tag -a x.x.x -m "Release x.x.x" && git push origin x.x.x`
+5. `gh release create x.x.x --title "PPT Viewer x.x.x" --notes "..." main.js manifest.json styles.css`
+6. 论坛回复原帖或另开帖通知更新
+
+## 调试方式
+
+- Obsidian 桌面版 → 设置 → 第三方插件 → 关闭安全模式 → 加载 `ppt-viewer` 目录
+- 开发者工具：`Ctrl/Cmd + Shift + I` 查看控制台
+- 插件目录：`<vault>/.obsidian/plugins/ppt-viewer/`
