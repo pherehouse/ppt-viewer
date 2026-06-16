@@ -1,6 +1,6 @@
 # PPT Viewer for Obsidian
 
-[中文文档](README_ZH.md)
+[中文文档](README_ZH.md) · [GitHub](https://github.com/pherehouse/ppt-viewer)
 
 A PowerPoint preview plugin for Obsidian, supporting `.pptx` and `.ppt`. It uses a high-fidelity **Accurate Preview** by default, with a lightweight **HTML Fallback** for simpler files or environments without native render tools.
 
