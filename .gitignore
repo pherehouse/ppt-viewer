@@ -17,3 +17,6 @@ Thumbs.db
 # AI context files (local-only)
 CLAUDE.md
 AGENTS.md
+
+# Documentation (local-only)
+docs/
