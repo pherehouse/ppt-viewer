@@ -1,6 +1,6 @@
-# PPT Viewer - Claude 工作上下文
+# PPT Viewer - Codex / opencode 工作上下文
 
-> 面向 Claude 的项目协作约定（与 AGENTS.md 内容应保持一致；AGENTS.md 是同一份约定，给 Codex / opencode 使用）。
+> 面向 Codex / opencode 的项目协作约定（与 CLAUDE.md 内容应保持一致；CLAUDE.md 是同一份约定，给 Claude 使用）。
 
 ## 项目
 
@@ -78,13 +78,13 @@ node --check main.js
 
 | 文件 | 受众 | 角色 |
 |------|------|------|
-| `CLAUDE.md` | Claude | AI 协作约定 |
-| `AGENTS.md` | Codex / opencode | 与 CLAUDE.md 内容相同，只是给另一类客户端 |
+| `CLAUDE.md` | Claude | 与 AGENTS.md 内容相同，只是给另一类客户端 |
+| `AGENTS.md` | Codex / opencode | AI 协作约定 |
 | `README.md` | 人（团队成员、对外） | 项目状态、团队、文件清单 |
 
-**当你（Claude）修改 CLAUDE.md 时，必须立即同步：**
+**当你（Codex / opencode）修改 AGENTS.md 时，必须立即同步：**
 
-1. **AGENTS.md** —— 内容应与 CLAUDE.md 完全一致，仅文件标题、自指语句不同（CLAUDE.md 里写 "AGENTS.md 你不用读取"，AGENTS.md 里写 "CLAUDE.md 你不用读取"）。改完后用 `diff CLAUDE.md AGENTS.md` 确认仅这两处差异。
+1. **CLAUDE.md** —— 内容应与 AGENTS.md 完全一致，仅文件标题、自指语句不同（AGENTS.md 里写 "CLAUDE.md 你不用读取"，CLAUDE.md 里写 "AGENTS.md 你不用读取"）。改完后用 `diff CLAUDE.md AGENTS.md` 确认仅这两处差异。
 2. **README.md** —— 当改动涉及项目阶段、文件清单、目录结构时同步过去。
 
 **当你修改项目结构（新增 / 移动 / 删除文件、改目录、改阶段）时，必须同时更新这三份文件。**
@@ -93,4 +93,4 @@ node --check main.js
 
 ## 注意事项
 
-- AGENTS.md 你不用读取（那是给 Codex/opencode 看的，内容与本文件一致）
+- CLAUDE.md 你不用读取（那是给 Claude 看的，内容与本文件一致）
