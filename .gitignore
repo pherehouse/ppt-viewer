@@ -13,3 +13,7 @@ Thumbs.db
 # Temporary files
 *.log
 *.tmp
+
+# AI context files (local-only)
+CLAUDE.md
+AGENTS.md
