@@ -1,250 +1,148 @@
-# PPT Viewer for Obsidian
+<div align="center">
 
-[English](README.md)
+# PPT Viewer
 
-在 Obsidian 中直接预览 PowerPoint 文件的插件，支持 `.pptx` 和 `.ppt`。插件默认优先使用高保真的 **Accurate Preview**，并提供轻量的 **HTML Fallback** 作为兜底。
+**在 Obsidian 中高保真审阅 PowerPoint —— 用你本机的 PowerPoint 渲染预览。**
 
-原始 PPT 文件不会被修改。Accurate Preview 生成的 PDF/PNG 只写入系统临时缓存目录，不会出现在你的 vault 中。只有点击 **Convert PDF** 按钮时，才会主动在原文件旁边导出 PDF。
+[![License: MIT](https://img.shields.io/badge/License-MIT-4C1.svg)](./LICENSE)
+[![Made for Obsidian](https://img.shields.io/badge/Made%20for-Obsidian-7C3AED.svg)](https://obsidian.md)
+[![GitHub release](https://img.shields.io/github/v/release/pherehouse/ppt-viewer?color=blue)](../../releases)
+
+[![English](https://img.shields.io/badge/README-English-2b5797?style=flat-square)](./README.md)
+[![简体中文](https://img.shields.io/badge/README-简体中文-c74634?style=flat-square)](./README_ZH.md)
+
+</div>
+
+PPT Viewer 让你在 Obsidian 中直接打开 `.pptx` 和 `.ppt` 文件。它不再尝试用 HTML/CSS 重新实现 PowerPoint 的渲染引擎，而是在后台调用**本机 Microsoft PowerPoint**（或 LibreOffice 兜底）把幻灯片转成 PDF，按需渲染成图片，并在一个简洁、无干扰的审阅界面中呈现。
+
+原始文件永远不会被修改。所有自动生成的预览只写入系统临时缓存目录 —— 除非你主动导出，否则 vault 中不会多出任何文件。
+
+## 为什么需要 PPT Viewer？
+
+- 会议汇报、路演材料、课程课件都放在 vault 里，而 Obsidian 原生打不开它们。
+- 基于 HTML/CSS 的 PPT 渲染器在复杂排版、SmartArt、图表、自定义字体上经常失真 —— 本插件直接用真正的 PowerPoint 引擎渲染，所见即 PowerPoint 所得。
+- 你想快速**审阅**幻灯片（滚动、跳页、全屏），而不是每次都启动完整的 PowerPoint 应用。
 
 ## 功能
 
-- 在 Obsidian 内直接打开并预览 `.pptx` / `.ppt` 文件。
-- 默认优先使用 Accurate Preview，复杂 PPT 更接近 PowerPoint 原始效果。
-- Accurate Preview 失败时自动回退到 HTML Fallback。
-- 支持 PDF/PNG 缓存，重复打开同一文件更快。
-- 首屏优化：先渲染第一页，再后台渲染剩余页面。
-- 已处理快速第一页与全量页面命名差异，避免第一页重复显示。
-- 支持从 Accurate Preview 切换到 **HTML Fallback**，也支持从 HTML 模式点 **Accurate Preview** 返回精准预览。
-- 支持折叠预览工具栏，让幻灯片占用更多空间。
-- 支持在 Obsidian 内进入全屏预览，不必打开 PowerPoint 播放；全屏时可用方向键、空格、PageUp/PageDown 切换页面。
-- 支持 **Open External**，用系统默认应用打开原始 PPT。
-- 支持 **Convert PDF**，用户主动导出 PDF 到 vault 中原文件旁边。
-- HTML Fallback 支持基础文本、图片、形状、表格、背景、组合形状坐标变换等。
+### 🎯 高保真渲染
 
-## 预览模式
+- **真实 PowerPoint 引擎** — 通过 Microsoft PowerPoint 自动化转换（macOS 用 AppleScript，Windows 用 COM），像素级还原。
+- **LibreOffice 兜底** — 未安装 PowerPoint 时自动切换到 LibreOffice headless。
+- **支持旧版 `.ppt`** — 老的二进制格式同样走高保真流水线。
+- **带引擎元数据的智能缓存** — PDF 和渲染页缓存在系统临时目录；一旦装上 PowerPoint，LibreOffice 渲染的旧缓存会自动升级重渲。
 
-### Accurate Preview（精准预览）
+### ⚡ 按需快速预览
 
-Accurate Preview 是推荐模式。它使用本机渲染链路：先通过 LibreOffice headless 将 PPT 转成 PDF，再通过 Poppler `pdftoppm` 将 PDF 页面转成 PNG，最后在 Obsidian 中显示图片页。
+- **首屏优先** — 第 1 页先渲染先显示，其余页面在后台边看边渲。
+- **180 DPI 页面图片** — 通过 Poppler `pdftoppm` 渲染清晰页面，并做页码去重。
+- **内嵌 PDF 兜底** — 没有安装 `pdftoppm` 时直接内嵌显示转换后的 PDF。
+- **重复打开秒开** — 命中缓存后几乎无需等待。
 
-适合以下场景：
+### 🖥 简洁审阅界面
 
-- 复杂排版、正式模板、商业汇报、竞赛材料、路演文档。
-- 大量形状、框线、组合对象、背景图、渐变、阴影、图表的 PPT。
-- 对预览准确度要求高，而不是只想粗略看内容。
+- **审阅 chrome** — 极简顶栏显示文件名、渲染引擎状态和页码，滚动时页码自动同步。
+- **HTML 模式** — 内置轻量 JSZip/HTML 渲染器，在没有任何本机工具时兜底显示 `.pptx`，可随时切换。
+- **刷新** — 一键清除当前文件的预览缓存并重新渲染。
+- **外部打开** — 用系统默认应用打开原始文件。
+- **导出 PDF** — 仅在你主动点击时才在原文件旁生成 PDF。
 
-限制：
+### 🔳 无干扰全屏
 
-- 第一次打开需要转换和渲染，较大的 PPT 可能需要几秒或更久。
-- 需要 Obsidian 桌面端。
-- 需要安装 LibreOffice。
-- 需要安装 Poppler 的 `pdftoppm`。
+- **真·演示全屏** — 预览铺满整个屏幕，而不只是一个面板。
+- **可折叠工具栏** — chrome 收起后只留一个小把手按钮，屏幕上只剩幻灯片。
+- **键盘翻页** — 方向键、空格、PageUp/PageDown 翻页，Esc 退出。
 
-缓存目录位于系统临时目录，例如 macOS 上类似：
+## 使用
 
-```text
-/var/folders/.../T/obsidian-ppt-viewer-cache/
-```
-
-### HTML Fallback（HTML 兜底预览）
-
-HTML Fallback 会直接读取 `.pptx` zip 包内的 XML，并用 HTML/CSS 在 Obsidian 中绘制幻灯片。它的目标是"可读兜底"，不是完整复刻 PowerPoint 渲染引擎。
-
-适合：
-
-- 简单 PPT。
-- 只包含基础文本、图片、简单形状的文件。
-- 没有安装 LibreOffice 或 Poppler 的环境。
-- 想快速粗略查看内容。
-
-不适合：
-
-- 复杂图形、大量组合形状、SmartArt、复杂图表。
-- 高度依赖 PowerPoint 字体度量、自动缩放、段落布局的页面。
-- 动画、特殊效果、复杂裁剪、阴影、渐变、复杂母版。
+1. 安装并启用插件（见下方安装方式）。
+2. 在 Obsidian 文件浏览器中点击任意 `.pptx` / `.ppt` 文件。
+3. 等待第一页出现 —— 首次打开会显示"正在生成高保真预览"过渡画面（仅第一次）。
+4. 滚动或使用键盘审阅页面。
+5. 通过顶栏按钮切换 **HTML 模式**、**刷新**缓存、进入**全屏**或**外部打开**。
 
 ## 安装
 
-### 手动安装
+### ① AI 安装（最快）
 
-1. 下载或 clone 本仓库。
-2. 在 Obsidian vault 中创建插件目录：
-
-```text
-<your-vault>/.obsidian/plugins/ppt-viewer/
-```
-
-3. 将以下文件复制进去：
+把下面这段话直接粘给 AI 助手（Claude Code / Cursor / Copilot / Trae）：
 
 ```text
-main.js
-manifest.json
-styles.css
+帮我安装 Obsidian 插件 "PPT Viewer"：
+1. 从 https://github.com/pherehouse/ppt-viewer/releases/latest 下载 zip
+2. 解压后把 ppt-viewer 文件夹放到 <我的仓库>/.obsidian/plugins/ 目录下
+3. 告诉我如何在 Obsidian 设置里启用它
 ```
 
-4. 重启 Obsidian，或在设置中刷新第三方插件列表。
-5. 打开 `Settings -> Community plugins`。
-6. 启用 **PPT Viewer**。
+或一条 curl 命令直装：
 
-### 可选依赖
+```bash
+curl -fsSL https://github.com/pherehouse/ppt-viewer/releases/latest/download/ppt-viewer.zip -o /tmp/ppt-viewer.zip
+unzip -o /tmp/ppt-viewer.zip -d <我的仓库>/.obsidian/plugins/
+```
 
-Accurate Preview 需要 LibreOffice 和 Poppler。macOS 推荐使用 Homebrew：
+### ② 从 GitHub 手动安装
+
+1. 从 [最新 release](../../releases/latest) 下载 `main.js`、`manifest.json` 和 `styles.css`。
+2. 在 vault 中创建 `<你的仓库>/.obsidian/plugins/ppt-viewer/` 目录并放入这三个文件。
+3. 重启 Obsidian，在 `设置 → 第三方插件` 中启用 **PPT Viewer**。
+
+### ③ BRAT（推荐用于跟踪更新）
+
+1. 安装 [BRAT](https://github.com/TfTHacker/obsidian42-brat) 插件。
+2. 添加 `pherehouse/ppt-viewer` 作为 beta 插件。
+3. 在第三方插件列表中启用 **PPT Viewer**。
+
+## 环境要求与兼容性
+
+- **Obsidian 桌面端**（Windows / macOS）。因为要驱动本机转换工具，插件为 `isDesktopOnly`。
+- **最佳保真**：安装 Microsoft PowerPoint
+  - macOS：`/Applications/Microsoft PowerPoint.app`
+  - Windows：通过 COM 自动化调用 PowerPoint
+- **兜底**：[LibreOffice](https://www.libreoffice.org/)（`soffice`），自动探测常见路径，如 `/Applications/LibreOffice.app/Contents/MacOS/soffice`、`/opt/homebrew/bin/soffice`、`/usr/local/bin/soffice`、`C:\Program Files\LibreOffice\program\soffice.exe`
+- **可选（页面更清晰）**：[Poppler](https://poppler.freedesktop.org/) `pdftoppm`（macOS 用 `brew install poppler`）。没有它时会直接内嵌 PDF 显示。
+- 如果本机工具都没有：`.pptx` 会回退到内置 HTML 模式；`.ppt` 必须要有转换器。
+
+macOS 安装本机依赖：
 
 ```bash
 brew install --cask libreoffice
 brew install poppler
-```
-
-插件会尝试查找这些 LibreOffice 路径：
-
-```text
-/Applications/LibreOffice.app/Contents/MacOS/soffice
-/usr/local/bin/soffice
-/opt/homebrew/bin/soffice
-soffice
-libreoffice
-```
-
-`pdftoppm` 会尝试查找：
-
-```text
-/opt/homebrew/bin/pdftoppm
-/usr/local/bin/pdftoppm
-pdftoppm
-```
-
-如果没有这些依赖，插件会自动回退到 HTML Fallback。
-
-## 使用
-
-安装并启用插件后，在 Obsidian 文件浏览器中点击 `.pptx` 或 `.ppt` 文件即可打开预览。
-
-预览界面中的按钮说明：
-
-- **Accurate preview**：当前处于精准预览模式。
-- **HTML Fallback**：切换到内置 HTML 解析预览。
-- **Accurate Preview**：在 HTML 模式中返回精准预览。
-- **Hide Toolbar**：折叠预览工具栏，释放更多显示空间。
-- **^**：工具栏折叠后顶部显示的小按钮，用于恢复按钮区。
-- **Fullscreen**：让当前预览区域进入全屏显示；方向键/空格切换页面，Esc 退出。
-- **Open External**：用系统默认应用打开原始 PPT。
-- **Convert PDF**：主动导出 PDF 到原文件旁边。
-
-注意：自动生成的预览缓存不是正式导出文件；只有点击 **Convert PDF** 才会在 vault 中生成 PDF。
-
-## 技术栈
-
-- Obsidian Plugin API
-- JavaScript
-- JSZip：读取 `.pptx` zip 包结构
-- DOMParser：解析 PPTX XML
-- HTML/CSS：绘制简单幻灯片 fallback
-- LibreOffice headless：高保真 PPT/PPTX -> PDF 渲染
-- Poppler `pdftoppm`：PDF -> PNG 页面渲染
-- Node.js APIs in Obsidian desktop：`child_process`、`fs`、`path`、`os`、`crypto`
-
-文件说明：
-
-```text
-main.js                  打包后的插件代码
-manifest.json            Obsidian 插件清单
-styles.css               插件样式
-tests/accurate-preview.test.js
-tests/group-transform.test.js
-tests/text-wrapping.test.js
 ```
 
 ## 工作原理
 
-打开 PPT 时，插件先尝试 Accurate Preview：
-
 ```mermaid
 flowchart TD
-  A["Open PPT/PPTX in Obsidian"] --> B["Compute cache key from path, size, mtime"]
-  B --> C{"Cached PDF exists?"}
-  C -- yes --> E["Use cached PDF"]
-  C -- no --> D["LibreOffice headless converts PPT to PDF"]
-  D --> E
-  E --> F{"Cached PNG pages exist?"}
-  F -- yes --> H["Display cached PNG pages"]
-  F -- no --> G["Render first page with pdftoppm"]
-  G --> I["Show first page quickly"]
-  I --> J["Render remaining pages in background"]
-  J --> H
-  D -- failed --> K["Fallback to HTML renderer"]
-  G -- failed --> K
+  A["在 Obsidian 中打开 PPT/PPTX"] --> B{"存在有效缓存?"}
+  B -- 是 --> R["显示缓存页面"]
+  B -- 否 --> C{"本机有 PowerPoint?"}
+  C -- 是 --> D["PowerPoint 自动化转 PDF<br/>(AppleScript / COM)"]
+  C -- 否 --> E["LibreOffice headless 转 PDF"]
+  D --> F
+  E --> F{"有 pdftoppm?"}
+  F -- 是 --> G["先渲染第 1 页并立即显示"]
+  G --> H["后台渲染剩余页面"]
+  F -- 否 --> I["内嵌 PDF 直接显示"]
+  H --> R
+  D -- 失败 --> E
+  E -- 失败 --> J["HTML 模式（仅 pptx）"]
 ```
 
-HTML Fallback 会：
-
-- 解压 PPTX。
-- 读取 `ppt/presentation.xml`、slide XML 和 relationships。
-- 提取幻灯片尺寸、背景、图片、形状、文本和表格。
-- 将元素映射到固定 16:9 画布中。
-- 对组合形状进行基础坐标变换。
-
-## 开发
-
-当前仓库没有完整 TypeScript 源码工程，`main.js` 是可直接加载的 bundle。测试是轻量级 Node.js 回归测试，用于保护关键行为。
-
-运行测试：
-
-```bash
-node tests/accurate-preview.test.js
-node tests/group-transform.test.js
-node tests/text-wrapping.test.js
-node --check main.js
-```
-
-建议发布前至少运行以上命令。
-
-## 已知限制
-
-- HTML Fallback 不是完整 PowerPoint 渲染引擎。
-- HTML Fallback 不支持动画。
-- HTML Fallback 对 SmartArt、复杂图表、复杂字体度量、自动适配文本等支持有限。
-- Accurate Preview 依赖本机 LibreOffice 和 Poppler。
-- 第一次 Accurate Preview 需要转换和渲染，较大的 PPT 可能需要几秒或更久。
-- 缓存位于系统临时目录，系统清理临时文件后会重新渲染。
+缓存位于系统临时目录（macOS 上类似 `/var/folders/.../T/obsidian-ppt-reviewer-powerpoint/...`），按源文件路径加缓存版本号和引擎元数据作为键 —— 渲染引擎或 DPI 变化时缓存会自动失效重建。
 
 ## 故障排查
 
-### 预览较慢
+- **首次打开较慢** — 正在由 PowerPoint/LibreOffice 转换，再次打开会命中缓存，明显变快。
+- **提示"高保真预览不可用"** — 安装 LibreOffice（`brew install --cask libreoffice`）或 PowerPoint；可用 `which soffice` 检查。
+- **页面略模糊** — 安装 Poppler（`brew install poppler`），页面会以 180 DPI PNG 渲染，替代内嵌 PDF。
+- **HTML 模式排版乱** — 复杂 PPT 的预期表现，HTML 渲染器只是可读兜底，不是 PowerPoint 复刻。可点高保真按钮切回。
+- **想强制重新渲染** — 点击**刷新**按钮，清掉当前文件缓存重渲。
 
-第一次打开需要 LibreOffice 转 PDF，并用 `pdftoppm` 渲染图片页。再次打开同一文件会复用缓存，速度会明显提升。
+## 致谢与许可
 
-### 精准预览没有显示
+- 基于 [Obsidian Plugin API](https://docs.obsidian.md/Reference/TypeScript+API) 构建。
+- HTML 模式使用 [JSZip](https://stuk.github.io/jszip/) 读取 `.pptx` 包。
+- 本机渲染依赖 Microsoft PowerPoint / [LibreOffice](https://www.libreoffice.org/) 与 [Poppler](https://poppler.freedesktop.org/)。
 
-确认已安装 LibreOffice 和 Poppler：
-
-```bash
-which soffice
-which pdftoppm
-```
-
-macOS 可安装：
-
-```bash
-brew install --cask libreoffice
-brew install poppler
-```
-
-### HTML 预览很乱
-
-这是预期限制。复杂 PPT 应使用 Accurate Preview。HTML Fallback 只作为轻量兜底。
-
-### 第一页重复显示
-
-插件会按页码去重缓存图片，避免快速第一页和后台全量渲染的命名差异导致第一页重复。更新插件后如果仍看到旧缓存导致的异常，重新打开该 PPT 通常即可刷新显示。
-
-### 从 HTML 模式回不去
-
-HTML Fallback 底部导航中有 **Accurate Preview** 按钮，可以返回精准预览。
-
-### 不想在 vault 中生成 PDF
-
-自动 Accurate Preview 不会在 vault 中生成 PDF。它只使用系统临时缓存目录。只有点击 **Convert PDF** 按钮才会主动导出 PDF 到原 PPT 旁边。
-
-## 许可证
-
-发布前请添加许可证，例如 MIT。
+[MIT](./LICENSE) © phere
