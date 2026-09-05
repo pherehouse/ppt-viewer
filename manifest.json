@@ -1,9 +1,9 @@
 {
   "id": "ppt-viewer",
   "name": "PPT Viewer",
-  "version": "1.0.0",
+  "version": "1.8.2",
   "minAppVersion": "0.15.0",
-  "description": "Preview PowerPoint (.pptx and .ppt) files directly within Obsidian.",
-  "author": "pherehouse",
-  "isDesktopOnly": false
+  "description": "跨 Windows 和 macOS 的高保真 PPT 审阅器，后台转为 PDF 并按需快速预览，支持简洁审阅和无干扰全屏。",
+  "author": "phere",
+  "isDesktopOnly": true
 }

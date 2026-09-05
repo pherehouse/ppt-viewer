@@ -231,3 +231,1702 @@ jszip/dist/jszip.min.js:
   https://github.com/nodeca/pako/blob/main/LICENSE
   *)
 */
+
+// New PPT Reviewer 1.1.0: review-focused reliability and performance layer.
+// This layer intentionally sits after the bundled viewer so it can be maintained
+// independently without altering the original ppt-viewer plugin.
+St="ppt-viewer-view";
+const newPptReviewerOriginalOnLoadFile=Ct.prototype.onLoadFile;
+const newPptReviewerOriginalOnUnloadFile=Ct.prototype.onUnloadFile;
+const newPptReviewerOriginalRenderAccurateFromCurrentFile=Ct.prototype.renderAccurateFromCurrentFile;
+const newPptReviewerOriginalRenderAccuratePreviewUI=Ct.prototype.renderAccuratePreviewUI;
+
+Ct.prototype.onUnloadFile=async function(){
+  if(this.pptFullscreenKeyHandler){
+    document.removeEventListener("keydown",this.pptFullscreenKeyHandler,!0);
+    this.pptFullscreenKeyHandler=null;
+  }
+  return newPptReviewerOriginalOnUnloadFile.call(this);
+};
+
+Ct.prototype.appendAccuratePreviewPage=function(container,filePath,pageNumber){
+  const fs=require("fs"),{pathToFileURL}=require("url");
+  const detectedPage=this.getPdfPreviewPageNumber(filePath);
+  const page=String(pageNumber||detectedPage||"");
+  const image=container.createEl("img",{cls:"ppt-accurate-page-img"});
+  image.src=pathToFileURL(filePath).href;
+  image.alt=page?`Slide ${page}`:"PowerPoint slide";
+  image.setAttribute("loading","lazy");
+  image.setAttribute("decoding","async");
+  image.setAttribute("data-preview-path",filePath);
+  image.setAttribute("data-preview-page",page);
+  image.addEventListener("error",()=>{
+    if(image.dataset.pptReviewerFallbackApplied)return;
+    image.dataset.pptReviewerFallbackApplied="true";
+    try{image.src="data:image/png;base64,"+fs.readFileSync(filePath).toString("base64");}
+    catch(error){
+      image.addClass("ppt-reviewer-page-error");
+      image.alt="Slide preview failed to load";
+      console.warn("[New PPT Reviewer] Unable to load preview page:",error);
+    }
+  });
+  return image;
+};
+
+Ct.prototype.renderAccurateFromCurrentFile=async function(){
+  if(this.pptReviewerRendering){
+    new ht.Notice("Preview is already rendering…");
+    return;
+  }
+  this.pptReviewerRendering=true;
+  try{return await newPptReviewerOriginalRenderAccurateFromCurrentFile.call(this);}
+  finally{this.pptReviewerRendering=false;}
+};
+
+Ct.prototype.clearCurrentPreviewCache=function(){
+  if(!this.file)return;
+  try{
+    const fs=require("fs"),sourcePath=this.getSourceFilePath(this.file),cache=this.getPreviewCachePath(sourcePath);
+    fs.rmSync(cache.dir,{recursive:true,force:true});
+  }catch(error){console.warn("[New PPT Reviewer] Could not clear preview cache:",error);}
+};
+
+Ct.prototype.renderAccuratePreviewUI=function(pdfPath){
+  newPptReviewerOriginalRenderAccuratePreviewUI.call(this,pdfPath);
+  const toolbar=this.container.querySelector(".ppt-accurate-toolbar");
+  const status=toolbar&&toolbar.querySelector(".ppt-accurate-status");
+  if(status)status.setAttribute("aria-live","polite");
+  if(toolbar&&!toolbar.querySelector(".ppt-reviewer-refresh-btn")){
+    const refresh=toolbar.createEl("button",{text:"Refresh Preview",cls:"ppt-nav-btn ppt-reviewer-refresh-btn"});
+    refresh.setAttribute("title","Clear generated preview files and render again");
+    refresh.addEventListener("click",()=>{
+      this.clearCurrentPreviewCache();
+      this.renderAccurateFromCurrentFile();
+    });
+  }
+};
+
+Ct.prototype.onLoadFile=async function(file){
+  if(String(file.extension||"").toLowerCase()!=="ppt")return newPptReviewerOriginalOnLoadFile.call(this,file);
+  this.file=file;
+  this.container.empty();
+  const loading=this.container.createDiv({cls:"ppt-viewer-root ppt-accurate-root"});
+  loading.createDiv({cls:"ppt-accurate-loading",text:"Converting legacy .ppt for preview…"});
+  try{
+    const pdfPath=await this.renderAccuratePreview(file);
+    if(!pdfPath)throw new Error("No PDF preview was created");
+    this.renderAccuratePreviewUI(pdfPath);
+  }catch(error){
+    console.warn("[New PPT Reviewer] Legacy PPT conversion failed:",error);
+    this.renderError(error);
+  }
+};
+
+// New PPT Reviewer 1.2.0: polished review surface and fidelity-first loading.
+const newPptReviewerLegacyHtmlLoader=pptViewerOriginalOnLoadFile;
+
+Ct.prototype.renderReviewerLoading=function(file){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-loading-root"});
+  const panel=root.createDiv({cls:"ppt-reviewer-loading-panel"});
+  panel.createDiv({cls:"ppt-reviewer-loading-mark",text:"P"});
+  const copy=panel.createDiv();
+  copy.createDiv({cls:"ppt-reviewer-loading-title",text:"正在生成高保真预览"});
+  copy.createDiv({cls:"ppt-reviewer-loading-copy",text:`${file.basename} · 首次打开会稍等片刻`});
+};
+
+Ct.prototype.onLoadFile=async function(file){
+  const extension=String(file.extension||"").toLowerCase();
+  this.file=file;
+  if(extension==="ppt"){
+    this.renderReviewerLoading(file);
+    try{
+      const pdfPath=await this.renderAccuratePreview(file);
+      if(!pdfPath)throw new Error("No PDF preview was created");
+      this.renderAccuratePreviewUI(pdfPath);
+    }catch(error){
+      console.warn("[New PPT Reviewer] Legacy PPT conversion failed:",error);
+      this.renderError(error);
+    }
+    return;
+  }
+  this.renderReviewerLoading(file);
+  this.slides=[];
+  this.currentSlide=0;
+  this.mediaCache.clear();
+  this.relationships.clear();
+  try{
+    const pdfPath=await this.renderAccuratePreview(file);
+    if(pdfPath){
+      this.renderAccuratePreviewUI(pdfPath);
+      return;
+    }
+  }catch(error){
+    console.warn("[New PPT Reviewer] Accurate preview unavailable, using HTML fallback:",error);
+  }
+  return newPptReviewerLegacyHtmlLoader.call(this,file);
+};
+
+Ct.prototype.getReviewerCurrentPage=function(pages){
+  const images=Array.from(pages.querySelectorAll(".ppt-accurate-page-img"));
+  if(!images.length)return 0;
+  const target=pages.scrollTop+Math.max(36,pages.clientHeight*.22);
+  let closest=0,distance=Infinity;
+  images.forEach((image,index)=>{
+    const delta=Math.abs(image.offsetTop-target);
+    if(delta<distance){distance=delta;closest=index;}
+  });
+  return closest+1;
+};
+
+Ct.prototype.renderAccuratePreviewUI=function(pdfPath){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-accurate-root ppt-preview-chrome-root"});
+  const header=root.createDiv({cls:"ppt-reviewer-header"});
+  const identity=header.createDiv({cls:"ppt-reviewer-identity"});
+  identity.createDiv({cls:"ppt-reviewer-mark",text:"P"});
+  const titleBlock=identity.createDiv({cls:"ppt-reviewer-title-block"});
+  titleBlock.createDiv({cls:"ppt-reviewer-eyebrow",text:"PPT REVIEWER"});
+  titleBlock.createDiv({cls:"ppt-reviewer-title",text:(this.file&&this.file.basename)||"PowerPoint"});
+  const actions=header.createDiv({cls:"ppt-reviewer-actions"});
+  const createAction=(text,className,onClick,title)=>{
+    const button=actions.createEl("button",{text,cls:`ppt-reviewer-btn ${className||""}`});
+    if(title)button.setAttribute("title",title);
+    button.addEventListener("click",onClick);
+    return button;
+  };
+  createAction("HTML 模式","ppt-reviewer-btn-quiet",()=>{this.file&&newPptReviewerLegacyHtmlLoader.call(this,this.file);},"在高保真模式不可用时使用");
+  createAction("刷新","ppt-reviewer-btn-quiet",()=>{this.clearCurrentPreviewCache();this.renderAccurateFromCurrentFile();},"重新生成预览");
+  createAction("全屏","ppt-reviewer-btn-quiet",()=>this.togglePreviewFullscreen(),"全屏审阅");
+  createAction("外部打开 ↗","ppt-reviewer-btn-primary",()=>this.openWithDefaultApp(),"使用默认 PowerPoint 应用打开");
+
+  const context=root.createDiv({cls:"ppt-reviewer-context"});
+  const status=context.createDiv({cls:"ppt-reviewer-status",text:"高保真渲染 · 正在加载第 1 页"});
+  status.setAttribute("aria-live","polite");
+  const counter=context.createDiv({cls:"ppt-reviewer-counter",text:"1 / —"});
+  const pages=root.createDiv({cls:"ppt-accurate-pages ppt-reviewer-pages"});
+  pages.setText("正在准备第一页…");
+
+  const syncCounter=()=>{
+    const total=pages.querySelectorAll(".ppt-accurate-page-img").length;
+    const current=this.getReviewerCurrentPage(pages);
+    if(total&&current){counter.setText(`${current} / ${total}`);status.setText(`高保真渲染 · 第 ${current} 页，共 ${total} 页`);}
+  };
+  let scrollFrame=0;
+  pages.addEventListener("scroll",()=>{
+    if(scrollFrame)return;
+    scrollFrame=requestAnimationFrame(()=>{scrollFrame=0;syncCounter();});
+  });
+
+  this.renderFirstPdfPreviewPage(pdfPath).then(firstPage=>{
+    pages.empty();
+    this.appendAccuratePreviewPage(pages,firstPage,"1");
+    counter.setText("1 / —");
+    status.setText("高保真渲染 · 正在加载其余页面");
+    this.renderRemainingPdfPreviewPages(pdfPath).then(allPages=>{
+      const rendered=new Set(Array.from(pages.querySelectorAll("img")).map(image=>image.getAttribute("data-preview-page")).filter(Boolean));
+      for(const pagePath of allPages){
+        const page=String(this.getPdfPreviewPageNumber(pagePath)||"");
+        if(!rendered.has(page)){
+          this.appendAccuratePreviewPage(pages,pagePath,page);
+          if(page)rendered.add(page);
+        }
+      }
+      syncCounter();
+    }).catch(error=>{
+      console.warn("[New PPT Reviewer] Remaining page render failed:",error);
+      status.setText("高保真渲染 · 已加载当前页面");
+    });
+  }).catch(error=>{
+    console.warn("[New PPT Reviewer] First page render failed:",error);
+    pages.empty();
+    pages.createDiv({cls:"ppt-reviewer-fallback",text:"无法生成图片预览。你可以使用 HTML 模式或外部打开。"});
+    status.setText("高保真渲染不可用");
+    counter.setText("—");
+  });
+};
+
+// New PPT Reviewer 1.3.0: native PowerPoint first, LibreOffice second.
+Ct.prototype.getLibreOfficeCandidates=function(){
+  const path=require("path");
+  if(process.platform==="win32"){
+    return [
+      path.join(process.env.ProgramFiles||"C:\\Program Files","LibreOffice","program","soffice.exe"),
+      path.join(process.env["ProgramFiles(x86)"]||"C:\\Program Files (x86)","LibreOffice","program","soffice.exe"),
+      "soffice.exe","libreoffice.exe"
+    ];
+  }
+  return ["/Applications/LibreOffice.app/Contents/MacOS/soffice","/usr/local/bin/soffice","/opt/homebrew/bin/soffice","soffice","libreoffice"];
+};
+
+Ct.prototype.convertWithMicrosoftPowerPoint=async function(sourcePath,pdfPath){
+  const fs=require("fs"),{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+  if(process.platform==="darwin"){
+    if(!fs.existsSync("/Applications/Microsoft PowerPoint.app"))throw new Error("Microsoft PowerPoint is not installed");
+    const script=`on run argv
+set sourceFile to POSIX file (item 1 of argv)
+set outputFile to POSIX file (item 2 of argv)
+with timeout of 40 seconds
+  tell application "Microsoft PowerPoint"
+    set presentationFile to open sourceFile
+    save presentationFile in outputFile as save as PDF
+    close presentationFile saving no
+  end tell
+end timeout
+end run`;
+    await run("osascript",["-e",script,sourcePath,pdfPath],{timeout:45e3});
+  }else if(process.platform==="win32"){
+    const quote=value=>"'"+String(value).replace(/'/g,"''")+"'";
+    const command=`$ErrorActionPreference='Stop'; $app=$null; $presentation=$null; try { $app=New-Object -ComObject PowerPoint.Application; $presentation=$app.Presentations.Open(${quote(sourcePath)}, $false, $true, $false); $presentation.ExportAsFixedFormat(${quote(pdfPath)}, 2); } finally { if($presentation){$presentation.Close()} if($app){$app.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($app)} }`;
+    await run("powershell.exe",["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",command],{timeout:60e3,windowsHide:true});
+  }else{
+    throw new Error("Microsoft PowerPoint automation is unavailable on this platform");
+  }
+  if(!fs.existsSync(pdfPath))throw new Error("Microsoft PowerPoint did not create a PDF preview");
+  return pdfPath;
+};
+
+Ct.prototype.convertWithLibreOffice=async function(sourcePath,cache){
+  const fs=require("fs"),path=require("path"),{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+  let lastError=null;
+  for(const binary of this.getLibreOfficeCandidates()){
+    try{
+      await run(binary,["--headless","--convert-to","pdf","--outdir",cache.dir,sourcePath],{timeout:120e3,windowsHide:true});
+      if(fs.existsSync(cache.pdfPath))return cache.pdfPath;
+      const created=fs.readdirSync(cache.dir).find(name=>name.toLowerCase().endsWith(".pdf"));
+      if(created){
+        const generated=path.join(cache.dir,created);
+        if(generated!==cache.pdfPath)fs.renameSync(generated,cache.pdfPath);
+        return cache.pdfPath;
+      }
+    }catch(error){lastError=error;}
+  }
+  throw lastError||new Error("LibreOffice conversion failed");
+};
+
+Ct.prototype.renderAccuratePreview=async function(file){
+  if(typeof require!=="function")return null;
+  const fs=require("fs");
+  const sourcePath=this.getSourceFilePath(file),cache=this.getPreviewCachePath(sourcePath);
+  if(fs.existsSync(cache.pdfPath)){
+    this.pptReviewerRenderEngine="缓存预览";
+    return cache.pdfPath;
+  }
+  fs.mkdirSync(cache.dir,{recursive:true});
+  const errors=[];
+  try{
+    const result=await this.convertWithMicrosoftPowerPoint(sourcePath,cache.pdfPath);
+    this.pptReviewerRenderEngine="Microsoft PowerPoint";
+    return result;
+  }catch(error){
+    errors.push(error);
+    console.info("[New PPT Reviewer] Microsoft PowerPoint unavailable, trying LibreOffice:",error&&error.message?error.message:error);
+  }
+  try{
+    const result=await this.convertWithLibreOffice(sourcePath,cache);
+    this.pptReviewerRenderEngine="LibreOffice";
+    return result;
+  }catch(error){
+    errors.push(error);
+  }
+  throw new Error(`Could not create an accurate preview. ${errors.map(error=>error&&error.message).filter(Boolean).join(" | ")}`);
+};
+
+Ct.prototype.getPdftoppmCandidates=function(){
+  if(process.platform==="win32")return ["pdftoppm.exe","pdftoppm"];
+  return ["/opt/homebrew/bin/pdftoppm","/usr/local/bin/pdftoppm","pdftoppm"];
+};
+
+Ct.prototype.renderAccuratePreviewUI=function(pdfPath){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-accurate-root ppt-preview-chrome-root"});
+  const header=root.createDiv({cls:"ppt-reviewer-header"});
+  const identity=header.createDiv({cls:"ppt-reviewer-identity"});
+  identity.createDiv({cls:"ppt-reviewer-mark",text:"P"});
+  const titleBlock=identity.createDiv({cls:"ppt-reviewer-title-block"});
+  titleBlock.createDiv({cls:"ppt-reviewer-eyebrow",text:"PPT REVIEWER"});
+  titleBlock.createDiv({cls:"ppt-reviewer-title",text:(this.file&&this.file.basename)||"PowerPoint"});
+  const actions=header.createDiv({cls:"ppt-reviewer-actions"});
+  const createAction=(text,className,onClick,title)=>{const button=actions.createEl("button",{text,cls:`ppt-reviewer-btn ${className||""}`});if(title)button.setAttribute("title",title);button.addEventListener("click",onClick);return button;};
+  createAction("HTML 模式","ppt-reviewer-btn-quiet",()=>{this.file&&newPptReviewerLegacyHtmlLoader.call(this,this.file);},"在高保真模式不可用时使用");
+  createAction("刷新","ppt-reviewer-btn-quiet",()=>{this.clearCurrentPreviewCache();this.renderAccurateFromCurrentFile();},"重新生成预览");
+  createAction("全屏","ppt-reviewer-btn-quiet",()=>this.togglePreviewFullscreen(),"全屏审阅");
+  createAction("外部打开 ↗","ppt-reviewer-btn-primary",()=>this.openWithDefaultApp(),"使用默认 PowerPoint 应用打开");
+  const context=root.createDiv({cls:"ppt-reviewer-context"});
+  const status=context.createDiv({cls:"ppt-reviewer-status",text:`${this.pptReviewerRenderEngine||"高保真"} · 正在加载第 1 页`});
+  status.setAttribute("aria-live","polite");
+  const counter=context.createDiv({cls:"ppt-reviewer-counter",text:"1 / —"});
+  const pages=root.createDiv({cls:"ppt-accurate-pages ppt-reviewer-pages"});
+  pages.setText("正在准备第一页…");
+  const syncCounter=()=>{const total=pages.querySelectorAll(".ppt-accurate-page-img").length,current=this.getReviewerCurrentPage(pages);if(total&&current){counter.setText(`${current} / ${total}`);status.setText(`${this.pptReviewerRenderEngine||"高保真"} · 第 ${current} 页，共 ${total} 页`);}};
+  let scrollFrame=0;
+  pages.addEventListener("scroll",()=>{if(scrollFrame)return;scrollFrame=requestAnimationFrame(()=>{scrollFrame=0;syncCounter();});});
+  this.renderFirstPdfPreviewPage(pdfPath).then(firstPage=>{
+    pages.empty();this.appendAccuratePreviewPage(pages,firstPage,"1");counter.setText("1 / —");status.setText(`${this.pptReviewerRenderEngine||"高保真"} · 正在加载其余页面`);
+    this.renderRemainingPdfPreviewPages(pdfPath).then(allPages=>{
+      const rendered=new Set(Array.from(pages.querySelectorAll("img")).map(image=>image.getAttribute("data-preview-page")).filter(Boolean));
+      for(const pagePath of allPages){const page=String(this.getPdfPreviewPageNumber(pagePath)||"");if(!rendered.has(page)){this.appendAccuratePreviewPage(pages,pagePath,page);if(page)rendered.add(page);}}
+      syncCounter();
+    }).catch(error=>{console.warn("[New PPT Reviewer] Remaining page render failed:",error);syncCounter();});
+  }).catch(error=>{
+    console.info("[New PPT Reviewer] Image renderer unavailable, using embedded PDF:",error&&error.message?error.message:error);
+    pages.empty();
+    const frame=pages.createEl("embed",{cls:"ppt-reviewer-pdf-frame"});
+    frame.setAttribute("type","application/pdf");
+    frame.setAttribute("src",require("url").pathToFileURL(pdfPath).href);
+    status.setText(`${this.pptReviewerRenderEngine||"高保真"} · 内嵌 PDF 预览`);
+    counter.setText("PDF");
+  });
+};
+
+// New PPT Reviewer 1.4.0: native-fidelity cache and true presentation fullscreen.
+const PPT_REVIEWER_CACHE_REVISION="powerpoint-native-v2";
+const PPT_REVIEWER_PREVIEW_DPI=180;
+const newPptReviewerV14GetPreviewCachePath=Ct.prototype.getPreviewCachePath;
+const newPptReviewerV14RenderAccuratePreviewUI=Ct.prototype.renderAccuratePreviewUI;
+const newPptReviewerV14OnUnloadFile=Ct.prototype.onUnloadFile;
+
+Ct.prototype.getPreviewCachePath=function(sourcePath){
+  const path=require("path"),base=newPptReviewerV14GetPreviewCachePath.call(this,sourcePath);
+  const dir=`${base.dir}-${PPT_REVIEWER_CACHE_REVISION}`;
+  return {dir,pdfPath:path.join(dir,path.basename(base.pdfPath)),metadataPath:path.join(dir,"renderer.json")};
+};
+
+Ct.prototype.canUseMicrosoftPowerPoint=function(){
+  if(process.platform==="darwin")return require("fs").existsSync("/Applications/Microsoft PowerPoint.app");
+  return process.platform==="win32";
+};
+
+Ct.prototype.readReviewerCacheMetadata=function(cache){
+  const fs=require("fs");
+  try{return JSON.parse(fs.readFileSync(cache.metadataPath,"utf8"));}
+  catch(error){return null;}
+};
+
+Ct.prototype.writeReviewerCacheMetadata=function(cache,engine){
+  require("fs").writeFileSync(cache.metadataPath,JSON.stringify({revision:PPT_REVIEWER_CACHE_REVISION,engine,createdAt:new Date().toISOString()},null,2));
+};
+
+Ct.prototype.convertWithMicrosoftPowerPoint=async function(sourcePath,pdfPath){
+  const fs=require("fs"),{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+  if(process.platform==="darwin"){
+    if(!fs.existsSync("/Applications/Microsoft PowerPoint.app"))throw new Error("Microsoft PowerPoint is not installed");
+    const script=`on run argv
+set sourceFile to POSIX file (item 1 of argv)
+set outputFile to POSIX file (item 2 of argv)
+with timeout of 90 seconds
+  tell application "Microsoft PowerPoint"
+    open sourceFile
+    set presentationFile to active presentation
+    save presentationFile in outputFile as save as PDF
+    close presentationFile saving no
+  end tell
+end timeout
+end run`;
+    await run("osascript",["-e",script,sourcePath,pdfPath],{timeout:95e3});
+  }else if(process.platform==="win32"){
+    const quote=value=>"'"+String(value).replace(/'/g,"''")+"'";
+    const command=`$ErrorActionPreference='Stop'; $app=$null; $presentation=$null; try { $app=New-Object -ComObject PowerPoint.Application; $presentation=$app.Presentations.Open(${quote(sourcePath)}, $false, $true, $false); $presentation.ExportAsFixedFormat(${quote(pdfPath)}, 2); } finally { if($presentation){$presentation.Close()} if($app){$app.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($app)} }`;
+    await run("powershell.exe",["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",command],{timeout:60e3,windowsHide:true});
+  }else{
+    throw new Error("Microsoft PowerPoint automation is unavailable on this platform");
+  }
+  if(!fs.existsSync(pdfPath)||fs.statSync(pdfPath).size<1024)throw new Error("Microsoft PowerPoint did not create a valid PDF preview");
+  return pdfPath;
+};
+
+Ct.prototype.renderAccuratePreview=async function(file){
+  if(typeof require!=="function")return null;
+  const fs=require("fs"),sourcePath=this.getSourceFilePath(file),cache=this.getPreviewCachePath(sourcePath);
+  if(fs.existsSync(cache.pdfPath)){
+    const metadata=this.readReviewerCacheMetadata(cache);
+    const nativeRequired=this.canUseMicrosoftPowerPoint();
+    if(!nativeRequired||(metadata&&metadata.revision===PPT_REVIEWER_CACHE_REVISION&&metadata.engine==="Microsoft PowerPoint")){
+      this.pptReviewerRenderEngine=(metadata&&metadata.engine)||"缓存预览";
+      return cache.pdfPath;
+    }
+    fs.rmSync(cache.dir,{recursive:true,force:true});
+  }
+  fs.mkdirSync(cache.dir,{recursive:true});
+  const errors=[];
+  try{
+    const result=await this.convertWithMicrosoftPowerPoint(sourcePath,cache.pdfPath);
+    this.pptReviewerRenderEngine="Microsoft PowerPoint";
+    this.writeReviewerCacheMetadata(cache,this.pptReviewerRenderEngine);
+    return result;
+  }catch(error){
+    errors.push(error);
+    console.info("[New PPT Reviewer] Microsoft PowerPoint unavailable, trying LibreOffice:",error&&error.message?error.message:error);
+  }
+  try{
+    const result=await this.convertWithLibreOffice(sourcePath,cache);
+    this.pptReviewerRenderEngine="LibreOffice";
+    this.writeReviewerCacheMetadata(cache,this.pptReviewerRenderEngine);
+    return result;
+  }catch(error){errors.push(error);}
+  throw new Error(`Could not create an accurate preview. ${errors.map(error=>error&&error.message).filter(Boolean).join(" | ")}`);
+};
+
+Ct.prototype.prepareReviewerPageCache=function(pdfPath){
+  const fs=require("fs"),path=require("path"),dir=path.join(path.dirname(pdfPath),"pages"),marker=path.join(dir,".render-dpi");
+  fs.mkdirSync(dir,{recursive:true});
+  let current="";
+  try{current=fs.readFileSync(marker,"utf8").trim();}catch(error){}
+  if(current!==String(PPT_REVIEWER_PREVIEW_DPI)){
+    for(const name of fs.readdirSync(dir))if(/^slide-\d+\.png$/i.test(name))fs.rmSync(path.join(dir,name),{force:true});
+    fs.writeFileSync(marker,String(PPT_REVIEWER_PREVIEW_DPI));
+  }
+  return dir;
+};
+
+Ct.prototype.renderFirstPdfPreviewPage=async function(pdfPath){
+  const fs=require("fs"),path=require("path"),dir=this.prepareReviewerPageCache(pdfPath),output=path.join(dir,"slide-01.png");
+  const cached=this.getCachedPdfPreviewPages(pdfPath).find(page=>this.getPdfPreviewPageNumber(page)===1);
+  if(cached)return cached;
+  await this.runPdftoppm(pdfPath,["-png","-f","1","-l","1","-singlefile","-r",String(PPT_REVIEWER_PREVIEW_DPI),pdfPath,path.join(dir,"slide-01")]);
+  if(fs.existsSync(output))return output;
+  throw new Error("first page render failed");
+};
+
+Ct.prototype.renderPdfPreviewPages=async function(pdfPath){
+  const path=require("path"),dir=this.prepareReviewerPageCache(pdfPath),prefix=path.join(dir,"slide");
+  await this.runPdftoppm(pdfPath,["-png","-r",String(PPT_REVIEWER_PREVIEW_DPI),pdfPath,prefix]);
+  const pages=this.getCachedPdfPreviewPages(pdfPath);
+  if(pages.length)return pages;
+  throw new Error("pdftoppm produced no pages");
+};
+
+Ct.prototype.setReviewerFullscreenChrome=function(root,collapsed){
+  if(!root)return;
+  root.toggleClass("ppt-reviewer-chrome-collapsed",collapsed);
+  const button=root.querySelector(".ppt-reviewer-fullscreen-toggle");
+  if(button){
+    button.setAttribute("aria-expanded",collapsed?"false":"true");
+    button.setAttribute("aria-label",collapsed?"展开全屏工具栏":"折叠全屏工具栏");
+    button.setAttribute("title",collapsed?"展开工具栏":"折叠工具栏");
+  }
+  this.syncPreviewViewport&&this.syncPreviewViewport(root);
+};
+
+Ct.prototype.ensureReviewerFullscreenToggle=function(root){
+  if(!root)return null;
+  let button=root.querySelector(".ppt-reviewer-fullscreen-toggle");
+  if(button)return button;
+  button=root.createEl("button",{cls:"ppt-reviewer-fullscreen-toggle"});
+  button.setAttribute("type","button");
+  button.createSpan({cls:"ppt-reviewer-fullscreen-grip"});
+  button.addEventListener("click",()=>this.setReviewerFullscreenChrome(root,!root.hasClass("ppt-reviewer-chrome-collapsed")));
+  this.setReviewerFullscreenChrome(root,false);
+  return button;
+};
+
+Ct.prototype.bindReviewerFullscreenLifecycle=function(){
+  if(this.pptReviewerFullscreenChangeHandler)return;
+  this.pptReviewerFullscreenChangeHandler=()=>{
+    if(document.fullscreenElement)return;
+    this.setReviewerFullscreenChrome(this.getPreviewFullscreenTarget(),false);
+  };
+  document.addEventListener("fullscreenchange",this.pptReviewerFullscreenChangeHandler);
+};
+
+Ct.prototype.togglePreviewFullscreen=function(){
+  const root=this.getPreviewFullscreenTarget();
+  if(!root||!root.requestFullscreen)return;
+  if(document.fullscreenElement){
+    if(document.fullscreenElement===root||root.contains(document.fullscreenElement))document.exitFullscreen&&document.exitFullscreen();
+    return;
+  }
+  this.fullscreenSlideIndex=this.getFullscreenSlideIndex(root);
+  this.ensureReviewerFullscreenToggle(root);
+  this.bindPreviewFullscreenKeys();
+  this.bindReviewerFullscreenLifecycle();
+  this.setReviewerFullscreenChrome(root,true);
+  root.requestFullscreen().then(()=>this.goToFullscreenSlide(this.fullscreenSlideIndex||0)).catch(error=>{
+    this.setReviewerFullscreenChrome(root,false);
+    console.warn("[New PPT Reviewer] Fullscreen failed:",error&&error.message?error.message:error);
+  });
+};
+
+Ct.prototype.renderAccuratePreviewUI=function(pdfPath){
+  newPptReviewerV14RenderAccuratePreviewUI.call(this,pdfPath);
+  this.ensureReviewerFullscreenToggle(this.getPreviewFullscreenTarget());
+};
+
+Ct.prototype.onUnloadFile=async function(){
+  if(this.pptReviewerFullscreenChangeHandler){
+    document.removeEventListener("fullscreenchange",this.pptReviewerFullscreenChangeHandler);
+    this.pptReviewerFullscreenChangeHandler=null;
+  }
+  return newPptReviewerV14OnUnloadFile.call(this);
+};
+
+// New PPT Reviewer 1.5.0: one-time native authorization and render escape routes.
+const PPT_REVIEWER_SETTINGS_DEFAULTS={settingsVersion:1,powerPointAuthorization:"unknown"};
+const newPptReviewerV15RenderAccuratePreviewUI=Ct.prototype.renderAccuratePreviewUI;
+
+kt.prototype.persistReviewerSettings=async function(patch){
+  this.pptReviewerSettings=Object.assign({},PPT_REVIEWER_SETTINGS_DEFAULTS,this.pptReviewerSettings||{},patch||{});
+  await this.saveData(this.pptReviewerSettings);
+  return this.pptReviewerSettings;
+};
+
+kt.prototype.requestPowerPointAuthorization=async function(options={}){
+  const force=options.force===true,quiet=options.quiet===true;
+  if(process.platform!=="darwin")return true;
+  const fs=require("fs");
+  if(!fs.existsSync("/Applications/Microsoft PowerPoint.app")){
+    await this.persistReviewerSettings({powerPointAuthorization:"unavailable"});
+    return false;
+  }
+  const state=(this.pptReviewerSettings&&this.pptReviewerSettings.powerPointAuthorization)||"unknown";
+  if(state==="granted"&&!force)return true;
+  if((state==="denied"||state==="unavailable")&&!force)return false;
+  if(this.pptReviewerAuthorizationPromise)return this.pptReviewerAuthorizationPromise;
+  this.pptReviewerAuthorizationPromise=(async()=>{
+    try{
+      const{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+      await run("osascript",["-e",'tell application "Microsoft PowerPoint" to get version'],{timeout:45e3});
+      await this.persistReviewerSettings({powerPointAuthorization:"granted"});
+      if(!quiet)new ht.Notice("PowerPoint 高保真渲染已授权");
+      return true;
+    }catch(error){
+      await this.persistReviewerSettings({powerPointAuthorization:"denied"});
+      if(!quiet)new ht.Notice("未获得 PowerPoint 授权，将使用兼容预览");
+      console.info("[New PPT Reviewer] PowerPoint authorization was not granted:",error&&error.message?error.message:error);
+      return false;
+    }finally{this.pptReviewerAuthorizationPromise=null;}
+  })();
+  return this.pptReviewerAuthorizationPromise;
+};
+
+kt.prototype.onload=async function(){
+  let stored={};
+  try{stored=await this.loadData()||{};}catch(error){console.warn("[New PPT Reviewer] Could not load settings:",error);}
+  this.pptReviewerSettings=Object.assign({},PPT_REVIEWER_SETTINGS_DEFAULTS,stored);
+  this.registerView(St,leaf=>{const view=new Ct(leaf);view.pptReviewerPlugin=this;return view;});
+  this.registerExtensions(["pptx","ppt"],St);
+  if(process.platform==="darwin"&&this.pptReviewerSettings.powerPointAuthorization==="unknown"){
+    const authorize=()=>this.requestPowerPointAuthorization({quiet:true});
+    if(this.app.workspace&&this.app.workspace.onLayoutReady)this.app.workspace.onLayoutReady(authorize);
+    else setTimeout(authorize,500);
+  }
+};
+
+Ct.prototype.ensurePowerPointAuthorization=async function(force=false){
+  if(process.platform!=="darwin")return this.canUseMicrosoftPowerPoint();
+  if(!this.pptReviewerPlugin)return false;
+  return this.pptReviewerPlugin.requestPowerPointAuthorization({force,quiet:!force});
+};
+
+Ct.prototype.isPowerPointPermissionError=function(error){
+  const message=String(error&&((error.stderr&&error.stderr.toString())||error.message)||error||"");
+  return /-1743|not authorized to send apple events|not permitted|automation permission|拒绝|不允许/i.test(message);
+};
+
+Ct.prototype.handlePowerPointAuthorizationFailure=function(error){
+  if(process.platform!=="darwin"||!this.pptReviewerPlugin||!this.isPowerPointPermissionError(error))return;
+  this.pptReviewerPlugin.persistReviewerSettings({powerPointAuthorization:"denied"}).catch(()=>{});
+};
+
+Ct.prototype.convertWithMicrosoftPowerPoint=async function(sourcePath,pdfPath){
+  const fs=require("fs"),path=require("path"),os=require("os"),crypto=require("crypto"),{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+  if(process.platform==="darwin"){
+    if(!fs.existsSync("/Applications/Microsoft PowerPoint.app"))throw new Error("Microsoft PowerPoint is not installed");
+    const stageDir=path.join(os.tmpdir(),"obsidian-ppt-reviewer-powerpoint"),fingerprint=crypto.createHash("sha1").update(`${sourcePath}:${process.pid}:${Date.now()}:${crypto.randomBytes(6).toString("hex")}`).digest("hex").slice(0,16),extension=path.extname(sourcePath)||".pptx";
+    const stagedSource=path.join(stageDir,`source-${fingerprint}${extension}`),stagedPdf=path.join(stageDir,`preview-${fingerprint}.pdf`);
+    fs.mkdirSync(stageDir,{recursive:true});
+    fs.copyFileSync(sourcePath,stagedSource);
+    fs.rmSync(stagedPdf,{force:true});
+    const script=`on run argv
+set sourceFile to POSIX file (item 1 of argv)
+set outputFile to POSIX file (item 2 of argv)
+with timeout of 90 seconds
+  tell application "Microsoft PowerPoint"
+    open sourceFile
+    set presentationFile to active presentation
+    save presentationFile in outputFile as save as PDF
+    close presentationFile saving no
+  end tell
+end timeout
+end run`;
+    try{
+      await run("osascript",["-e",script,stagedSource,stagedPdf],{timeout:95e3});
+      if(!fs.existsSync(stagedPdf)||fs.statSync(stagedPdf).size<1024)throw new Error("Microsoft PowerPoint did not create a valid PDF preview");
+      fs.mkdirSync(path.dirname(pdfPath),{recursive:true});
+      fs.copyFileSync(stagedPdf,pdfPath);
+    }finally{
+      fs.rmSync(stagedSource,{force:true});
+      fs.rmSync(stagedPdf,{force:true});
+    }
+  }else if(process.platform==="win32"){
+    const quote=value=>"'"+String(value).replace(/'/g,"''")+"'";
+    const command=`$ErrorActionPreference='Stop'; $app=$null; $presentation=$null; try { $app=New-Object -ComObject PowerPoint.Application; $presentation=$app.Presentations.Open(${quote(sourcePath)}, $false, $true, $false); $presentation.ExportAsFixedFormat(${quote(pdfPath)}, 2); } finally { if($presentation){$presentation.Close()} if($app){$app.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($app)} }`;
+    await run("powershell.exe",["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",command],{timeout:60e3,windowsHide:true});
+  }else{throw new Error("Microsoft PowerPoint automation is unavailable on this platform");}
+  if(!fs.existsSync(pdfPath)||fs.statSync(pdfPath).size<1024)throw new Error("Microsoft PowerPoint did not create a valid PDF preview");
+  return pdfPath;
+};
+
+Ct.prototype.renderAccuratePreview=async function(file){
+  if(typeof require!=="function")return null;
+  const fs=require("fs"),sourcePath=this.getSourceFilePath(file),cache=this.getPreviewCachePath(sourcePath);
+  let metadata=fs.existsSync(cache.pdfPath)?this.readReviewerCacheMetadata(cache):null;
+  if(fs.existsSync(cache.pdfPath)&&metadata&&metadata.revision===PPT_REVIEWER_CACHE_REVISION&&metadata.engine==="Microsoft PowerPoint"){
+    this.pptReviewerRenderEngine=metadata.engine;
+    return cache.pdfPath;
+  }
+  const usePowerPoint=await this.ensurePowerPointAuthorization(false);
+  if(fs.existsSync(cache.pdfPath)&&!usePowerPoint){
+    this.pptReviewerRenderEngine=(metadata&&metadata.engine)||"缓存预览";
+    return cache.pdfPath;
+  }
+  if(fs.existsSync(cache.pdfPath))fs.rmSync(cache.dir,{recursive:true,force:true});
+  fs.mkdirSync(cache.dir,{recursive:true});
+  const errors=[];
+  if(usePowerPoint){
+    try{
+      const result=await this.convertWithMicrosoftPowerPoint(sourcePath,cache.pdfPath);
+      this.pptReviewerRenderEngine="Microsoft PowerPoint";
+      this.writeReviewerCacheMetadata(cache,this.pptReviewerRenderEngine);
+      return result;
+    }catch(error){
+      errors.push(error);
+      this.handlePowerPointAuthorizationFailure(error);
+      console.info("[New PPT Reviewer] Microsoft PowerPoint unavailable, trying LibreOffice:",error&&error.message?error.message:error);
+    }
+  }
+  try{
+    const result=await this.convertWithLibreOffice(sourcePath,cache);
+    this.pptReviewerRenderEngine="LibreOffice";
+    this.writeReviewerCacheMetadata(cache,this.pptReviewerRenderEngine);
+    return result;
+  }catch(error){errors.push(error);}
+  throw new Error(`Could not create an accurate preview. ${errors.map(error=>error&&error.message).filter(Boolean).join(" | ")}`);
+};
+
+Ct.prototype.selectReviewerHtmlMode=function(file){
+  this.pptReviewerRequestId=(this.pptReviewerRequestId||0)+1;
+  this.file=file;
+  return newPptReviewerLegacyHtmlLoader.call(this,file);
+};
+
+Ct.prototype.renderReviewerExternalHandoff=function(file){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-handoff-root"});
+  const panel=root.createDiv({cls:"ppt-reviewer-handoff-panel"});
+  panel.createDiv({cls:"ppt-reviewer-loading-title",text:"已使用外部应用打开"});
+  panel.createDiv({cls:"ppt-reviewer-loading-copy",text:file.basename});
+  const actions=panel.createDiv({cls:"ppt-reviewer-handoff-actions"});
+  const html=actions.createEl("button",{text:"HTML 模式",cls:"ppt-reviewer-btn"});
+  html.addEventListener("click",()=>this.selectReviewerHtmlMode(file));
+  const resume=actions.createEl("button",{text:"返回高保真预览",cls:"ppt-reviewer-btn ppt-reviewer-btn-primary"});
+  resume.addEventListener("click",()=>this.onLoadFile(file));
+};
+
+Ct.prototype.selectReviewerExternalMode=function(file){
+  this.pptReviewerRequestId=(this.pptReviewerRequestId||0)+1;
+  this.openWithDefaultApp();
+  this.renderReviewerExternalHandoff(file);
+};
+
+Ct.prototype.renderReviewerLoading=function(file){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-loading-root"});
+  const header=root.createDiv({cls:"ppt-reviewer-header ppt-reviewer-loading-header"});
+  const identity=header.createDiv({cls:"ppt-reviewer-identity"});
+  identity.createDiv({cls:"ppt-reviewer-mark",text:"P"});
+  const titleBlock=identity.createDiv({cls:"ppt-reviewer-title-block"});
+  titleBlock.createDiv({cls:"ppt-reviewer-eyebrow",text:"PPT REVIEWER"});
+  titleBlock.createDiv({cls:"ppt-reviewer-title",text:file.basename});
+  const actions=header.createDiv({cls:"ppt-reviewer-actions"});
+  const html=actions.createEl("button",{text:"HTML 模式",cls:"ppt-reviewer-btn ppt-reviewer-btn-quiet"});
+  html.addEventListener("click",()=>this.selectReviewerHtmlMode(file));
+  const external=actions.createEl("button",{text:"外部打开 ↗",cls:"ppt-reviewer-btn ppt-reviewer-btn-primary"});
+  external.addEventListener("click",()=>this.selectReviewerExternalMode(file));
+  const stage=root.createDiv({cls:"ppt-reviewer-loading-stage"});
+  const panel=stage.createDiv({cls:"ppt-reviewer-loading-panel"});
+  panel.createDiv({cls:"ppt-reviewer-loading-mark",text:"P"});
+  const copy=panel.createDiv();
+  copy.createDiv({cls:"ppt-reviewer-loading-title",text:"正在生成高保真预览"});
+  const detail=copy.createDiv({cls:"ppt-reviewer-loading-copy",text:`${file.basename} · 可随时切换 HTML 或外部打开`});
+  detail.setAttribute("aria-live","polite");
+};
+
+Ct.prototype.onLoadFile=async function(file){
+  const requestId=(this.pptReviewerRequestId||0)+1;
+  this.pptReviewerRequestId=requestId;
+  const isActive=()=>this.pptReviewerRequestId===requestId;
+  const extension=String(file.extension||"").toLowerCase();
+  this.file=file;
+  this.renderReviewerLoading(file);
+  if(extension!=="ppt"){
+    this.slides=[];this.currentSlide=0;this.mediaCache.clear();this.relationships.clear();
+  }
+  try{
+    const pdfPath=await this.renderAccuratePreview(file);
+    if(!isActive())return;
+    if(!pdfPath)throw new Error("No PDF preview was created");
+    this.renderAccuratePreviewUI(pdfPath);
+  }catch(error){
+    if(!isActive())return;
+    if(extension==="ppt"){
+      console.warn("[New PPT Reviewer] Legacy PPT conversion failed:",error);
+      this.renderError(error);
+      return;
+    }
+    console.warn("[New PPT Reviewer] Accurate preview unavailable, using HTML fallback:",error);
+    return newPptReviewerLegacyHtmlLoader.call(this,file);
+  }
+};
+
+Ct.prototype.renderAccuratePreviewUI=function(pdfPath){
+  newPptReviewerV15RenderAccuratePreviewUI.call(this,pdfPath);
+  if(process.platform!=="darwin"||!this.pptReviewerPlugin)return;
+  const state=(this.pptReviewerPlugin.pptReviewerSettings&&this.pptReviewerPlugin.pptReviewerSettings.powerPointAuthorization)||"unknown";
+  if(state==="granted")return;
+  const actions=this.container.querySelector(".ppt-reviewer-actions");
+  if(!actions||actions.querySelector(".ppt-reviewer-authorize-btn"))return;
+  const button=actions.createEl("button",{text:"启用 PowerPoint",cls:"ppt-reviewer-btn ppt-reviewer-authorize-btn"});
+  button.addEventListener("click",async()=>{
+    button.disabled=true;
+    const granted=await this.ensurePowerPointAuthorization(true);
+    button.disabled=false;
+    if(granted&&this.file){this.clearCurrentPreviewCache();this.onLoadFile(this.file);}
+  });
+};
+
+// New PPT Reviewer 1.6.0: resilient HTML mode, localized UI, and reliable external opening.
+const newPptReviewerV16RenderAccuratePreview=Ct.prototype.renderAccuratePreview;
+const newPptReviewerV16RenderAccuratePreviewUI=Ct.prototype.renderAccuratePreviewUI;
+const newPptReviewerV16RenderUI=Ct.prototype.renderUI;
+const newPptReviewerV16AppendAccuratePreviewPage=Ct.prototype.appendAccuratePreviewPage;
+const newPptReviewerV16RenderReviewerLoading=Ct.prototype.renderReviewerLoading;
+
+Ct.prototype.getReviewerRenderEngineLabel=function(engine){
+  const labels={
+    "Microsoft PowerPoint":"原生高保真",
+    "LibreOffice":"兼容高保真",
+    "Accurate preview":"高保真预览",
+    "缓存预览":"缓存预览",
+    "高保真":"高保真预览"
+  };
+  return labels[engine]||engine||"高保真预览";
+};
+
+Ct.prototype.getSlideFilesFromPresentation=function(presentationXml,relationshipsXml){
+  const path=require("path"),relationshipMap=new Map();
+  const relationships=this.parseXml(relationshipsXml||"");
+  for(const relationship of this.getElements(relationships,"Relationship")){
+    const id=relationship.getAttribute("Id"),target=relationship.getAttribute("Target"),type=relationship.getAttribute("Type")||"";
+    if(id&&target&&(!type||/\/slide$/i.test(type)))relationshipMap.set(id,target);
+  }
+  const normalizeTarget=target=>{
+    let value=String(target||"").replace(/\\/g,"/").split(/[?#]/,1)[0];
+    try{value=decodeURIComponent(value);}catch(error){}
+    if(value.startsWith("/"))value=value.replace(/^\/+/,"");
+    if(value.startsWith("ppt/"))value=value.slice(4);
+    else value=path.posix.normalize(path.posix.join("ppt",value)).replace(/^ppt\//,"");
+    while(value.startsWith("../"))value=value.slice(3);
+    return value;
+  };
+  const presentation=this.parseXml(presentationXml||""),slideFiles=[];
+  for(const slideId of this.getElements(presentation,"sldId")){
+    const relationshipId=slideId.getAttributeNS&&slideId.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships","id")||slideId.getAttribute("r:id");
+    const target=relationshipMap.get(relationshipId);
+    if(target)slideFiles.push(normalizeTarget(target));
+  }
+  if(slideFiles.length)return Array.from(new Set(slideFiles));
+  const discovered=[];
+  if(this.zip&&this.zip.forEach)this.zip.forEach(name=>{
+    const match=String(name).match(/^ppt\/slides\/slide(\d+)\.xml$/i);
+    if(match)discovered.push({name:String(name).replace(/^ppt\//,""),number:Number(match[1])});
+  });
+  return discovered.sort((left,right)=>left.number-right.number).map(item=>item.name);
+};
+
+Ct.prototype.renderAccuratePreview=function(file){
+  let key="";
+  try{key=this.getSourceFilePath(file);}catch(error){key=file&&file.path||"";}
+  if(this.pptReviewerAccurateJob&&this.pptReviewerAccurateJob.key===key)return this.pptReviewerAccurateJob.promise;
+  const promise=Promise.resolve().then(()=>newPptReviewerV16RenderAccuratePreview.call(this,file));
+  this.pptReviewerAccurateJob={key,promise};
+  promise.finally(()=>{if(this.pptReviewerAccurateJob&&this.pptReviewerAccurateJob.promise===promise)this.pptReviewerAccurateJob=null;}).catch(()=>{});
+  return promise;
+};
+
+Ct.prototype.renderReviewerHtmlLoading=function(file){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-loading-root"});
+  const header=root.createDiv({cls:"ppt-reviewer-header ppt-reviewer-loading-header"});
+  const identity=header.createDiv({cls:"ppt-reviewer-identity"});
+  identity.createDiv({cls:"ppt-reviewer-mark",text:"P"});
+  const titleBlock=identity.createDiv({cls:"ppt-reviewer-title-block"});
+  titleBlock.createDiv({cls:"ppt-reviewer-eyebrow",text:"PPT 审阅"});
+  titleBlock.createDiv({cls:"ppt-reviewer-title",text:file.basename});
+  const actions=header.createDiv({cls:"ppt-reviewer-actions"});
+  const accurate=actions.createEl("button",{text:"高保真预览",cls:"ppt-reviewer-btn ppt-reviewer-btn-quiet"});
+  accurate.addEventListener("click",()=>this.onLoadFile(file));
+  const external=actions.createEl("button",{text:"外部打开 ↗",cls:"ppt-reviewer-btn ppt-reviewer-btn-primary"});
+  external.addEventListener("click",()=>this.selectReviewerExternalMode(file));
+  const stage=root.createDiv({cls:"ppt-reviewer-loading-stage"});
+  const panel=stage.createDiv({cls:"ppt-reviewer-loading-panel"});
+  panel.createDiv({cls:"ppt-reviewer-loading-mark",text:"P"});
+  const copy=panel.createDiv();
+  copy.createDiv({cls:"ppt-reviewer-loading-title",text:"正在生成 HTML 预览"});
+  const detail=copy.createDiv({cls:"ppt-reviewer-loading-copy",text:`${file.basename} · 正在解析页面内容`});
+  detail.setAttribute("aria-live","polite");
+};
+
+Ct.prototype.renderReviewerLoading=function(file){
+  newPptReviewerV16RenderReviewerLoading.call(this,file);
+  this.setReviewerText(this.container.querySelector(".ppt-reviewer-eyebrow"),"PPT 审阅");
+};
+
+Ct.prototype.renderReviewerHtmlFallback=async function(file,error,requestId){
+  console.warn("[New PPT Reviewer] HTML preview unavailable, returning to accurate preview:",error&&error.message?error.message:error);
+  try{
+    const pdfPath=await this.renderAccuratePreview(file);
+    if(this.pptReviewerRequestId!==requestId)return;
+    if(!pdfPath)throw new Error("No PDF preview was created");
+    this.pptReviewerRenderEngine="高保真预览";
+    this.renderAccuratePreviewUI(pdfPath);
+    new ht.Notice("该文件无法使用 HTML 模式，已自动切换到高保真预览");
+  }catch(accurateError){
+    if(this.pptReviewerRequestId!==requestId)return;
+    this.renderReviewerLocalizedError(accurateError,file,"HTML 预览暂不可用");
+  }
+};
+
+Ct.prototype.selectReviewerHtmlMode=async function(file){
+  const requestId=(this.pptReviewerRequestId||0)+1;
+  this.pptReviewerRequestId=requestId;
+  this.file=file;
+  this.renderReviewerHtmlLoading(file);
+  if(String(file.extension||"").toLowerCase()!=="pptx")return this.renderReviewerHtmlFallback(file,new Error("HTML mode only supports PPTX"),requestId);
+  this.slides=[];this.currentSlide=0;this.mediaCache.clear();this.relationships.clear();
+  try{
+    const binary=await this.app.vault.readBinary(file);
+    await this.parsePPTX(binary);
+    if(this.pptReviewerRequestId!==requestId)return;
+    if(!this.slides.length)throw new Error("No slides found in the presentation");
+    this.renderUI();
+  }catch(error){
+    return this.renderReviewerHtmlFallback(file,error,requestId);
+  }
+};
+
+Ct.prototype.setReviewerText=function(element,text){
+  if(!element)return;
+  if(typeof element.setText==="function")element.setText(text);
+  else element.textContent=text;
+};
+
+Ct.prototype.localizeReviewerLegacyUI=function(){
+  this.setReviewerText(this.container.querySelector(".ppt-sidebar-title"),"幻灯片");
+  const mappings=new Map([
+    ["◀ Previous","◀ 上一页"],["Next ▶","下一页 ▶"],["Open External ↗","外部打开 ↗"],
+    ["Convert PDF 📄","导出 PDF"],["Accurate Preview","高保真预览"],["Hide Toolbar","收起工具栏"],
+    ["Fullscreen","全屏"]
+  ]);
+  for(const button of this.container.querySelectorAll("button")){
+    const current=String(button.textContent||button.innerText||"").trim();
+    if(mappings.has(current))this.setReviewerText(button,mappings.get(current));
+  }
+  const restore=this.container.querySelector(".ppt-toolbar-restore-btn");
+  if(restore){restore.setAttribute("title","展开工具栏");restore.setAttribute("aria-label","展开工具栏");}
+  this.updateCounter(this.container.querySelector(".ppt-slide-counter"));
+};
+
+Ct.prototype.renderUI=function(){
+  newPptReviewerV16RenderUI.call(this);
+  this.localizeReviewerLegacyUI();
+};
+
+Ct.prototype.renderAccurateFromCurrentFile=async function(){
+  if(!this.file)return;
+  if(this.pptReviewerRendering){new ht.Notice("预览正在生成，请稍候");return;}
+  this.pptReviewerRendering=true;
+  try{return await this.onLoadFile(this.file);}
+  finally{this.pptReviewerRendering=false;}
+};
+
+Ct.prototype.updateCounter=function(counter){
+  if(counter)this.setReviewerText(counter,`第 ${this.currentSlide+1} 页，共 ${this.slides.length} 页`);
+};
+
+Ct.prototype.appendAccuratePreviewPage=function(container,filePath,pageNumber){
+  const image=newPptReviewerV16AppendAccuratePreviewPage.call(this,container,filePath,pageNumber);
+  const page=String(pageNumber||this.getPdfPreviewPageNumber(filePath)||"");
+  if(image)image.alt=page?`第 ${page} 页`:"PPT 页面";
+  return image;
+};
+
+Ct.prototype.renderAccuratePreviewUI=function(pdfPath){
+  this.pptReviewerRenderEngine=this.getReviewerRenderEngineLabel(this.pptReviewerRenderEngine);
+  newPptReviewerV16RenderAccuratePreviewUI.call(this,pdfPath);
+  this.setReviewerText(this.container.querySelector(".ppt-reviewer-eyebrow"),"PPT 审阅");
+  const actions=this.container.querySelector(".ppt-reviewer-actions");
+  if(!actions)return;
+  for(const button of actions.querySelectorAll("button")){
+    const text=String(button.textContent||button.innerText||"").trim();
+    if(text==="HTML 模式")button.addEventListener("click",event=>{
+      if(event){event.preventDefault();event.stopImmediatePropagation();}
+      if(this.file)this.selectReviewerHtmlMode(this.file);
+    },true);
+    if(text==="外部打开 ↗")button.addEventListener("click",event=>{
+      if(event){event.preventDefault();event.stopImmediatePropagation();}
+      if(this.file)this.selectReviewerExternalMode(this.file);
+    },true);
+  }
+};
+
+Ct.prototype.openWithDefaultApp=async function(file=this.file){
+  if(!file)return false;
+  const fs=require("fs"),{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+  let sourcePath;
+  try{sourcePath=this.getSourceFilePath(file);}catch(error){new ht.Notice("无法定位 PPT 文件");return false;}
+  if(!fs.existsSync(sourcePath)){new ht.Notice("PPT 文件不存在或已被移动");return false;}
+  const errors=[];
+  try{
+    const electron=require("electron"),shell=electron&&electron.shell;
+    if(shell&&typeof shell.openPath==="function"){
+      const message=await shell.openPath(sourcePath);
+      if(!message)return true;
+      errors.push(new Error(message));
+    }
+  }catch(error){errors.push(error);}
+  try{
+    if(process.platform==="darwin")await run("open",[sourcePath],{timeout:15e3});
+    else if(process.platform==="win32"){
+      const quoted="'"+sourcePath.replace(/'/g,"''")+"'";
+      await run("powershell.exe",["-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",`Start-Process -LiteralPath ${quoted}`],{timeout:15e3,windowsHide:true});
+    }else await run("xdg-open",[sourcePath],{timeout:15e3});
+    return true;
+  }catch(error){errors.push(error);}
+  console.warn("[New PPT Reviewer] Unable to open presentation externally:",errors.map(item=>item&&item.message).filter(Boolean).join(" | "));
+  try{
+    const electron=require("electron"),shell=electron&&electron.shell;
+    if(shell&&typeof shell.showItemInFolder==="function")shell.showItemInFolder(sourcePath);
+  }catch(error){}
+  new ht.Notice("未能启动外部应用，已尝试在文件夹中定位该文件");
+  return false;
+};
+
+Ct.prototype.convertToPDF=async function(){
+  if(!this.file)return;
+  const fs=require("fs"),path=require("path");
+  let sourcePath;
+  try{sourcePath=this.getSourceFilePath(this.file);}catch(error){new ht.Notice("无法定位 PPT 文件");return;}
+  const outputPath=sourcePath.replace(/\.(pptx?|ppt)$/i,".pdf");
+  const outputName=path.basename(outputPath);
+  const status=this.container.createDiv({cls:"ppt-convert-status"});
+  status.setText("正在导出 PDF…");
+  try{
+    const previewPdf=await this.renderAccuratePreview(this.file);
+    if(!previewPdf||!fs.existsSync(previewPdf))throw new Error("PDF preview was not created");
+    if(path.resolve(previewPdf)!==path.resolve(outputPath))fs.copyFileSync(previewPdf,outputPath);
+    const adapter=this.app&&this.app.vault&&this.app.vault.adapter;
+    const relativePath=this.file.path.replace(/\.(pptx?|ppt)$/i,".pdf");
+    if(adapter&&typeof adapter.reconcileInternalFile==="function")await adapter.reconcileInternalFile(relativePath);
+    new ht.Notice(`已导出：${outputName}`);
+  }catch(error){
+    console.warn("[New PPT Reviewer] PDF export failed:",error&&error.message?error.message:error);
+    new ht.Notice("PDF 导出失败，请稍后重试");
+  }finally{if(status&&typeof status.remove==="function")status.remove();}
+};
+
+Ct.prototype.renderReviewerExternalOpening=function(file){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-handoff-root"});
+  const panel=root.createDiv({cls:"ppt-reviewer-handoff-panel"});
+  panel.createDiv({cls:"ppt-reviewer-loading-title",text:"正在打开外部应用"});
+  const detail=panel.createDiv({cls:"ppt-reviewer-loading-copy",text:file.basename});
+  detail.setAttribute("aria-live","polite");
+};
+
+Ct.prototype.renderReviewerExternalFailure=function(file){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-handoff-root"});
+  const panel=root.createDiv({cls:"ppt-reviewer-handoff-panel"});
+  panel.createDiv({cls:"ppt-reviewer-loading-title",text:"外部应用未能打开"});
+  panel.createDiv({cls:"ppt-reviewer-loading-copy",text:"可以重试，或返回插件内预览。"});
+  const actions=panel.createDiv({cls:"ppt-reviewer-handoff-actions"});
+  const retry=actions.createEl("button",{text:"重试",cls:"ppt-reviewer-btn"});
+  retry.addEventListener("click",()=>this.selectReviewerExternalMode(file));
+  const resume=actions.createEl("button",{text:"返回预览",cls:"ppt-reviewer-btn ppt-reviewer-btn-primary"});
+  resume.addEventListener("click",()=>this.onLoadFile(file));
+};
+
+Ct.prototype.selectReviewerExternalMode=async function(file){
+  const requestId=(this.pptReviewerRequestId||0)+1;
+  this.pptReviewerRequestId=requestId;
+  this.file=file;
+  this.renderReviewerExternalOpening(file);
+  const opened=await this.openWithDefaultApp(file);
+  if(this.pptReviewerRequestId!==requestId)return;
+  if(opened)this.renderReviewerExternalHandoff(file);
+  else this.renderReviewerExternalFailure(file);
+};
+
+Ct.prototype.renderReviewerLocalizedError=function(error,file=this.file,title="暂时无法打开此演示文稿"){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-handoff-root"});
+  const panel=root.createDiv({cls:"ppt-reviewer-handoff-panel ppt-reviewer-error-panel"});
+  panel.createDiv({cls:"ppt-reviewer-loading-title",text:title});
+  panel.createDiv({cls:"ppt-reviewer-loading-copy",text:"你可以重新生成高保真预览，或使用外部应用打开。"});
+  const actions=panel.createDiv({cls:"ppt-reviewer-handoff-actions"});
+  if(file){
+    const retry=actions.createEl("button",{text:"重新预览",cls:"ppt-reviewer-btn"});
+    retry.addEventListener("click",()=>this.onLoadFile(file));
+    const external=actions.createEl("button",{text:"外部打开 ↗",cls:"ppt-reviewer-btn ppt-reviewer-btn-primary"});
+    external.addEventListener("click",()=>this.selectReviewerExternalMode(file));
+  }
+  console.warn("[New PPT Reviewer] Preview error:",error&&error.message?error.message:error);
+};
+
+Ct.prototype.renderError=function(error){
+  this.renderReviewerLocalizedError(error,this.file);
+};
+
+// New PPT Reviewer 1.7.0: open the generated PDF directly with Obsidian PDF.js.
+// Pages are rendered only when visible; image conversion remains the last-resort fallback.
+const newPptReviewerV17ImagePreviewUI=Ct.prototype.renderAccuratePreviewUI;
+const newPptReviewerV17OnLoadFile=Ct.prototype.onLoadFile;
+const newPptReviewerV17OnUnloadFile=Ct.prototype.onUnloadFile;
+const newPptReviewerV17SelectHtmlMode=Ct.prototype.selectReviewerHtmlMode;
+
+Ct.prototype.disposeReviewerPdfPreview=function(){
+  const session=this.pptReviewerPdfSession;
+  if(!session)return;
+  this.pptReviewerPdfSession=null;
+  if(session.intersectionObserver)session.intersectionObserver.disconnect();
+  if(session.resizeObserver)session.resizeObserver.disconnect();
+  if(session.resizeTimer)clearTimeout(session.resizeTimer);
+  if(session.rerenderAfterCurrent)session.rerenderAfterCurrent.clear();
+  for(const task of session.pdfRenderTasks.values())try{task.cancel();}catch(error){}
+  session.pdfRenderTasks.clear();
+  session.renderPromises.clear();
+  try{const result=session.document&&session.document.destroy();if(result&&result.catch)result.catch(()=>{});}catch(error){}
+  try{const result=session.loadingTask&&session.loadingTask.destroy();if(result&&result.catch)result.catch(()=>{});}catch(error){}
+};
+
+Ct.prototype.onLoadFile=async function(file){
+  this.disposeReviewerPdfPreview();
+  return newPptReviewerV17OnLoadFile.call(this,file);
+};
+
+Ct.prototype.selectReviewerHtmlMode=function(file){
+  this.disposeReviewerPdfPreview();
+  return newPptReviewerV17SelectHtmlMode.call(this,file);
+};
+
+Ct.prototype.onUnloadFile=async function(){
+  this.disposeReviewerPdfPreview();
+  return newPptReviewerV17OnUnloadFile.call(this);
+};
+
+Ct.prototype.getReviewerPageElements=function(root){
+  if(!root)return[];
+  return Array.from(root.querySelectorAll(".ppt-reviewer-pdf-page, .ppt-accurate-page-img"));
+};
+
+Ct.prototype.getReviewerCurrentPage=function(pages){
+  const elements=this.getReviewerPageElements(pages);
+  if(!elements.length)return 0;
+  const target=pages.scrollTop+Math.max(36,pages.clientHeight*.34);
+  let closest=0,distance=Infinity;
+  elements.forEach((element,index)=>{
+    const delta=Math.abs(element.offsetTop-target);
+    if(delta<distance){distance=delta;closest=index;}
+  });
+  return closest+1;
+};
+
+Ct.prototype.getFullscreenSlideIndex=function(root){
+  const pages=root&&root.querySelector(".ppt-reviewer-pages, .ppt-accurate-pages");
+  if(!pages)return Math.max(0,this.currentSlide||0);
+  const elements=this.getReviewerPageElements(pages);
+  if(!elements.length)return 0;
+  const current=this.getReviewerCurrentPage(pages);
+  return Math.max(0,current-1);
+};
+
+Ct.prototype.goToFullscreenSlide=function(index){
+  const root=this.getPreviewFullscreenTarget(),pages=root&&root.querySelector(".ppt-reviewer-pages, .ppt-accurate-pages");
+  const elements=this.getReviewerPageElements(pages);
+  if(pages&&elements.length){
+    const next=Math.max(0,Math.min(index,elements.length-1));
+    this.fullscreenSlideIndex=next;
+    pages.scrollTo({top:elements[next].offsetTop,behavior:"smooth"});
+    const session=this.pptReviewerPdfSession;
+    if(session){
+      this.renderReviewerPdfPage(session,next+1).catch(()=>{});
+      this.renderReviewerPdfPage(session,next+2).catch(()=>{});
+    }
+    return;
+  }
+  if(this.slides&&this.slides.length){
+    const next=Math.max(0,Math.min(index,this.slides.length-1));
+    this.goToSlide(next);this.fullscreenSlideIndex=next;
+  }
+};
+
+Ct.prototype.renderReviewerPdfPreviewUI=function(pdfPath){
+  this.disposeReviewerPdfPreview();
+  this.pptReviewerRenderEngine=this.getReviewerRenderEngineLabel(this.pptReviewerRenderEngine);
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-accurate-root ppt-preview-chrome-root ppt-reviewer-direct-pdf-root"});
+  const header=root.createDiv({cls:"ppt-reviewer-header"});
+  const identity=header.createDiv({cls:"ppt-reviewer-identity"});
+  identity.createDiv({cls:"ppt-reviewer-mark",text:"P"});
+  const titleBlock=identity.createDiv({cls:"ppt-reviewer-title-block"});
+  titleBlock.createDiv({cls:"ppt-reviewer-eyebrow",text:"PPT 审阅"});
+  titleBlock.createDiv({cls:"ppt-reviewer-title",text:(this.file&&this.file.basename)||"演示文稿"});
+  const actions=header.createDiv({cls:"ppt-reviewer-actions"});
+  const createAction=(text,className,onClick,title)=>{
+    const button=actions.createEl("button",{text,cls:`ppt-reviewer-btn ${className||""}`});
+    if(title)button.setAttribute("title",title);
+    button.addEventListener("click",onClick);
+    return button;
+  };
+  createAction("HTML 模式","ppt-reviewer-btn-quiet",()=>{if(this.file)this.selectReviewerHtmlMode(this.file);},"切换到 HTML 兼容模式");
+  createAction("刷新","ppt-reviewer-btn-quiet",()=>{this.clearCurrentPreviewCache();this.renderAccurateFromCurrentFile();},"重新生成预览");
+  createAction("全屏","ppt-reviewer-btn-quiet",()=>this.togglePreviewFullscreen(),"全屏审阅");
+  createAction("外部打开 ↗","ppt-reviewer-btn-primary",()=>{if(this.file)this.selectReviewerExternalMode(this.file);},"使用默认演示应用打开");
+  if(process.platform==="darwin"&&this.pptReviewerPlugin){
+    const state=(this.pptReviewerPlugin.pptReviewerSettings&&this.pptReviewerPlugin.pptReviewerSettings.powerPointAuthorization)||"unknown";
+    if(state!=="granted"){
+      const authorize=createAction("启用 PowerPoint","ppt-reviewer-authorize-btn",async()=>{
+        authorize.disabled=true;
+        const granted=await this.ensurePowerPointAuthorization(true);
+        authorize.disabled=false;
+        if(granted&&this.file){this.clearCurrentPreviewCache();this.onLoadFile(this.file);}
+      },"启用 PowerPoint 原生高保真转换");
+    }
+  }
+  const context=root.createDiv({cls:"ppt-reviewer-context"});
+  const status=context.createDiv({cls:"ppt-reviewer-status",text:`${this.pptReviewerRenderEngine||"高保真预览"} · 正在打开`});
+  status.setAttribute("aria-live","polite");
+  const counter=context.createDiv({cls:"ppt-reviewer-counter",text:"— / —"});
+  const pages=root.createDiv({cls:"ppt-accurate-pages ppt-reviewer-pages ppt-reviewer-pdf-pages"});
+  const loading=pages.createDiv({cls:"ppt-reviewer-pdf-document-loading"});
+  loading.createDiv({cls:"ppt-reviewer-loading-title",text:"正在打开高保真预览"});
+  loading.createDiv({cls:"ppt-reviewer-loading-copy",text:"页面会在浏览时按需加载"});
+  const session={
+    token:`${Date.now()}-${Math.random()}`,
+    pdfPath,root,pages,status,counter,
+    document:null,loadingTask:null,intersectionObserver:null,resizeObserver:null,resizeTimer:null,
+    wrappers:new Map(),renderPromises:new Map(),pdfRenderTasks:new Map(),renderedPixelWidths:new Map(),seedPages:new Map(),
+    pageCount:0,startedAt:Date.now()
+  };
+  this.pptReviewerPdfSession=session;
+  this.ensureReviewerFullscreenToggle(root);
+  this.initializeReviewerPdfPreview(session).catch(error=>{
+    if(this.pptReviewerPdfSession!==session)return;
+    console.warn("[New PPT Reviewer] Direct PDF preview unavailable, using image fallback:",error&&error.message?error.message:error);
+    this.disposeReviewerPdfPreview();
+    newPptReviewerV17ImagePreviewUI.call(this,pdfPath);
+  });
+  return root;
+};
+
+Ct.prototype.createReviewerPdfPage=function(session,pageNumber,ratio){
+  const wrapper=session.pages.createDiv({cls:"ppt-reviewer-pdf-page"});
+  wrapper.dataset.page=String(pageNumber);
+  wrapper.style.aspectRatio=ratio;
+  wrapper.setAttribute("role","img");
+  wrapper.setAttribute("aria-label",`第 ${pageNumber} 页`);
+  const canvas=wrapper.createEl("canvas",{cls:"ppt-reviewer-pdf-canvas"});
+  canvas.setAttribute("aria-hidden","true");
+  const loading=wrapper.createDiv({cls:"ppt-reviewer-pdf-page-loading",text:`第 ${pageNumber} 页`});
+  loading.setAttribute("aria-hidden","true");
+  session.wrappers.set(pageNumber,wrapper);
+  return wrapper;
+};
+
+Ct.prototype.initializeReviewerPdfPreview=async function(session){
+  if(typeof ht.loadPdfJs!=="function")throw new Error("Obsidian PDF.js is unavailable");
+  const fs=require("fs"),pdfjs=await ht.loadPdfJs();
+  if(this.pptReviewerPdfSession!==session)return;
+  if(!pdfjs||typeof pdfjs.getDocument!=="function")throw new Error("Obsidian PDF.js could not be loaded");
+  if(pdfjs.GlobalWorkerOptions&&!pdfjs.GlobalWorkerOptions.workerSrc)pdfjs.GlobalWorkerOptions.workerSrc="app://obsidian.md/pdfjs/pdf.worker.min.js";
+  const data=new Uint8Array(fs.readFileSync(session.pdfPath));
+  const loadingTask=pdfjs.getDocument({data});
+  session.loadingTask=loadingTask;
+  const document=await loadingTask.promise;
+  if(this.pptReviewerPdfSession!==session){try{await document.destroy();}catch(error){}return;}
+  session.document=document;
+  session.pageCount=document.numPages;
+  if(!session.pageCount)throw new Error("The PDF contains no pages");
+  const firstPage=await document.getPage(1),firstViewport=firstPage.getViewport({scale:1}),ratio=`${firstViewport.width} / ${firstViewport.height}`;
+  session.seedPages.set(1,firstPage);
+  session.pages.empty();
+  for(let pageNumber=1;pageNumber<=session.pageCount;pageNumber++)this.createReviewerPdfPage(session,pageNumber,ratio);
+  session.counter.setText(`1 / ${session.pageCount}`);
+  await new Promise(resolve=>requestAnimationFrame(resolve));
+  await this.renderReviewerPdfPage(session,1);
+  if(this.pptReviewerPdfSession!==session)return;
+  this.pptReviewerPdfFirstPaintMs=Date.now()-session.startedAt;
+  session.status.setText(`${this.pptReviewerRenderEngine||"高保真预览"} · 第 1 页，共 ${session.pageCount} 页`);
+  session.pages.addEventListener("scroll",()=>{
+    if(session.scrollFrame)return;
+    session.scrollFrame=requestAnimationFrame(()=>{session.scrollFrame=0;this.syncReviewerPdfPreview(session);});
+  },{passive:true});
+  if(typeof IntersectionObserver!=="undefined"){
+    session.intersectionObserver=new IntersectionObserver(entries=>{
+      for(const entry of entries)if(entry.isIntersecting){
+        const pageNumber=Number(entry.target.dataset.page||0);
+        if(pageNumber)this.renderReviewerPdfPage(session,pageNumber).catch(()=>{});
+      }
+    },{root:session.pages,rootMargin:"85% 0px 85% 0px",threshold:.01});
+    for(const wrapper of session.wrappers.values())session.intersectionObserver.observe(wrapper);
+  }
+  if(typeof ResizeObserver!=="undefined"){
+    session.lastResizeWidth=session.pages.clientWidth||0;
+    session.resizeObserver=new ResizeObserver(()=>{
+      const width=session.pages.clientWidth||0,previous=session.lastResizeWidth||0;
+      session.lastResizeWidth=width;
+      if(previous&&width&&Math.abs(width-previous)<2)return;
+      if(session.resizeTimer)clearTimeout(session.resizeTimer);
+      session.resizeTimer=setTimeout(()=>this.refreshReviewerPdfResolution(session),100);
+    });
+    session.resizeObserver.observe(session.pages);
+  }
+  this.renderReviewerPdfPage(session,2).catch(()=>{});
+};
+
+Ct.prototype.getReviewerPdfTargetWidth=function(session,wrapper,viewport){
+  const wrapperWidth=wrapper.getBoundingClientRect&&wrapper.getBoundingClientRect().width||wrapper.clientWidth||0;
+  const pageWidth=session.pages.clientWidth?Math.max(1,session.pages.clientWidth-32):viewport.width;
+  return Math.max(1,Math.min(wrapperWidth||pageWidth,1440));
+};
+
+Ct.prototype.renderReviewerPdfPage=async function(session,pageNumber,force=false){
+  if(!session||this.pptReviewerPdfSession!==session||!session.document||pageNumber<1||pageNumber>session.pageCount)return;
+  if(session.renderPromises.has(pageNumber)){
+    if(force&&session.rerenderAfterCurrent)session.rerenderAfterCurrent.add(pageNumber);
+    return session.renderPromises.get(pageNumber);
+  }
+  const promise=(async()=>{
+    const wrapper=session.wrappers.get(pageNumber);
+    if(!wrapper)return;
+    const page=session.seedPages.get(pageNumber)||await session.document.getPage(pageNumber);
+    session.seedPages.delete(pageNumber);
+    if(this.pptReviewerPdfSession!==session)return;
+    const baseViewport=page.getViewport({scale:1}),cssWidth=this.getReviewerPdfTargetWidth(session,wrapper,baseViewport);
+    wrapper.style.aspectRatio=`${baseViewport.width} / ${baseViewport.height}`;
+    const deviceScale=Math.min((typeof window!=="undefined"&&window.devicePixelRatio)||1,2);
+    const desiredPixelWidth=Math.min(2880,Math.max(1,Math.round(cssWidth*deviceScale)));
+    const previousWidth=session.renderedPixelWidths.get(pageNumber)||0;
+    if(!force&&previousWidth&&Math.abs(previousWidth-desiredPixelWidth)/desiredPixelWidth<.14)return;
+    const viewport=page.getViewport({scale:desiredPixelWidth/baseViewport.width}),canvas=wrapper.querySelector("canvas");
+    if(!canvas)throw new Error("PDF page canvas is missing");
+    const context=canvas.getContext("2d",{alpha:false});
+    if(!context)throw new Error("Canvas 2D context is unavailable");
+    canvas.width=Math.max(1,Math.ceil(viewport.width));
+    canvas.height=Math.max(1,Math.ceil(viewport.height));
+    canvas.style.width="100%";
+    canvas.style.height="100%";
+    context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);
+    const renderTask=page.render({canvasContext:context,viewport});
+    session.pdfRenderTasks.set(pageNumber,renderTask);
+    try{await renderTask.promise;}
+    finally{if(session.pdfRenderTasks.get(pageNumber)===renderTask)session.pdfRenderTasks.delete(pageNumber);}
+    if(this.pptReviewerPdfSession!==session)return;
+    session.renderedPixelWidths.set(pageNumber,desiredPixelWidth);
+    wrapper.addClass("ppt-reviewer-pdf-page-ready");
+    const loading=wrapper.querySelector(".ppt-reviewer-pdf-page-loading");
+    if(loading)loading.remove();
+  })();
+  session.renderPromises.set(pageNumber,promise);
+  try{return await promise;}
+  catch(error){
+    const wrapper=session.wrappers.get(pageNumber),loading=wrapper&&wrapper.querySelector(".ppt-reviewer-pdf-page-loading");
+    if(loading)loading.setText("页面加载失败");
+    throw error;
+  }finally{
+    if(session.renderPromises.get(pageNumber)===promise)session.renderPromises.delete(pageNumber);
+    if(session.rerenderAfterCurrent&&session.rerenderAfterCurrent.delete(pageNumber)&&this.pptReviewerPdfSession===session){
+      setTimeout(()=>this.renderReviewerPdfPage(session,pageNumber,true).catch(()=>{}),0);
+    }
+  }
+};
+
+Ct.prototype.syncReviewerPdfPreview=function(session){
+  if(this.pptReviewerPdfSession!==session)return;
+  const current=this.getReviewerCurrentPage(session.pages)||1;
+  this.fullscreenSlideIndex=current-1;
+  session.counter.setText(`${current} / ${session.pageCount}`);
+  session.status.setText(`${this.pptReviewerRenderEngine||"高保真预览"} · 第 ${current} 页，共 ${session.pageCount} 页`);
+  for(const pageNumber of [current-1,current,current+1])this.renderReviewerPdfPage(session,pageNumber).catch(()=>{});
+};
+
+Ct.prototype.refreshReviewerPdfResolution=function(session){
+  if(this.pptReviewerPdfSession!==session)return;
+  const current=this.getReviewerCurrentPage(session.pages)||1;
+  for(const pageNumber of [current-1,current,current+1])this.renderReviewerPdfPage(session,pageNumber,true).catch(()=>{});
+};
+
+Ct.prototype.renderAccuratePreviewUI=function(pdfPath){
+  return this.renderReviewerPdfPreviewUI(pdfPath);
+};
+
+// New PPT Reviewer 1.8.0: final, quiet review interface.
+// HTML rendering remains available internally for old data, but is no longer part of the user flow.
+Ct.prototype.createReviewerSvgIcon=function(parent,name){
+  const icons={
+    deck:[
+      ["rect",{x:"3",y:"4",width:"18",height:"14",rx:"2"}],
+      ["path",{d:"M7 8h10M7 12h6M9 21l3-3 3 3"}]
+    ],
+    fullscreen:[
+      ["path",{d:"M8 3H4a1 1 0 0 0-1 1v4M16 3h4a1 1 0 0 1 1 1v4M8 21H4a1 1 0 0 1-1-1v-4M16 21h4a1 1 0 0 0 1-1v-4"}]
+    ],
+    external:[
+      ["path",{d:"M14 3h7v7M10 14 21 3M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"}]
+    ]
+  };
+  const doc=parent&&parent.ownerDocument||typeof document!=="undefined"&&document;
+  const make=tag=>doc&&doc.createElementNS?doc.createElementNS("http://www.w3.org/2000/svg",tag):parent.createEl(tag);
+  const svg=make("svg");
+  svg.setAttribute("viewBox","0 0 24 24");
+  svg.setAttribute("fill","none");
+  svg.setAttribute("stroke","currentColor");
+  svg.setAttribute("stroke-width","1.8");
+  svg.setAttribute("stroke-linecap","round");
+  svg.setAttribute("stroke-linejoin","round");
+  svg.setAttribute("aria-hidden","true");
+  svg.setAttribute("class","ppt-reviewer-svg-icon");
+  for(const [tag,attributes] of icons[name]||icons.deck){
+    const element=make(tag);
+    for(const [key,value] of Object.entries(attributes))element.setAttribute(key,value);
+    if(svg.appendChild)svg.appendChild(element);
+  }
+  if(parent.appendChild)parent.appendChild(svg);
+  return svg;
+};
+
+Ct.prototype.createReviewerAction=function(parent,options){
+  const button=parent.createEl("button",{cls:`ppt-reviewer-final-action${options.primary?" is-primary":""}${options.iconOnly?" is-icon-only":""}`});
+  button.setAttribute("type","button");
+  button.setAttribute("aria-label",options.label);
+  button.setAttribute("title",options.label);
+  if(options.icon)this.createReviewerSvgIcon(button,options.icon);
+  if(!options.iconOnly)button.createEl("span",{text:options.label});
+  button.addEventListener("click",options.onClick);
+  return button;
+};
+
+Ct.prototype.createReviewerFinalHeader=function(root,file,options={}){
+  const header=root.createDiv({cls:"ppt-reviewer-final-header"});
+  const identity=header.createDiv({cls:"ppt-reviewer-final-identity"});
+  const mark=identity.createDiv({cls:"ppt-reviewer-final-mark"});
+  this.createReviewerSvgIcon(mark,"deck");
+  const titleBlock=identity.createDiv({cls:"ppt-reviewer-final-title-block"});
+  titleBlock.createDiv({cls:"ppt-reviewer-final-title",text:file&&file.basename||"演示文稿"});
+  const meta=titleBlock.createDiv({cls:"ppt-reviewer-final-meta"});
+  meta.createEl("span",{cls:"ppt-reviewer-final-status-dot"});
+  const status=meta.createEl("span",{text:options.status||"高保真预览"});
+  status.setAttribute("aria-live","polite");
+  const actions=header.createDiv({cls:"ppt-reviewer-final-actions"});
+  if(options.refresh)this.createReviewerAction(actions,{label:"刷新",onClick:()=>{this.clearCurrentPreviewCache();this.renderAccurateFromCurrentFile();}});
+  if(options.fullscreen)this.createReviewerAction(actions,{label:"全屏",icon:"fullscreen",iconOnly:true,onClick:()=>this.togglePreviewFullscreen()});
+  if(options.external!==false)this.createReviewerAction(actions,{label:"外部打开",icon:"external",primary:true,onClick:()=>{if(file)this.selectReviewerExternalMode(file);}});
+  return{header,status,actions};
+};
+
+Ct.prototype.updateReviewerFinalNavigation=function(session,current){
+  if(!session)return;
+  const page=Math.max(1,Math.min(current||1,session.pageCount||1));
+  if(session.counter)session.counter.setText(session.pageCount?`${page} / ${session.pageCount}`:"— / —");
+  if(session.previousButton)session.previousButton.disabled=!session.pageCount||page<=1;
+  if(session.nextButton)session.nextButton.disabled=!session.pageCount||page>=session.pageCount;
+};
+
+Ct.prototype.goToReviewerPdfPage=function(session,pageNumber){
+  if(!session||this.pptReviewerPdfSession!==session||!session.pageCount)return;
+  const next=Math.max(1,Math.min(pageNumber,session.pageCount)),wrapper=session.wrappers.get(next);
+  if(!wrapper)return;
+  session.pages.scrollTo({top:wrapper.offsetTop,behavior:"smooth"});
+  this.fullscreenSlideIndex=next-1;
+  this.updateReviewerFinalNavigation(session,next);
+  this.renderReviewerPdfPage(session,next).catch(()=>{});
+  this.renderReviewerPdfPage(session,next+1).catch(()=>{});
+};
+
+Ct.prototype.renderReviewerPdfPreviewUI=function(pdfPath){
+  this.disposeReviewerPdfPreview();
+  this.pptReviewerRenderEngine=this.getReviewerRenderEngineLabel(this.pptReviewerRenderEngine);
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-accurate-root ppt-preview-chrome-root ppt-reviewer-direct-pdf-root ppt-reviewer-final-root"});
+  const chrome=this.createReviewerFinalHeader(root,this.file,{status:`${this.pptReviewerRenderEngine||"高保真预览"} · 正在打开`,refresh:true,fullscreen:true,external:true});
+  const pages=root.createDiv({cls:"ppt-accurate-pages ppt-reviewer-pages ppt-reviewer-pdf-pages ppt-reviewer-final-pages"});
+  const loading=pages.createDiv({cls:"ppt-reviewer-pdf-document-loading"});
+  const loadingMark=loading.createDiv({cls:"ppt-reviewer-final-loading-mark"});
+  this.createReviewerSvgIcon(loadingMark,"deck");
+  loading.createDiv({cls:"ppt-reviewer-loading-title",text:"正在打开高保真预览"});
+  loading.createDiv({cls:"ppt-reviewer-loading-copy",text:"页面将自动显示"});
+  const dock=root.createDiv({cls:"ppt-reviewer-page-dock"});
+  const previousButton=dock.createEl("button",{cls:"ppt-reviewer-page-step",text:"‹"});
+  previousButton.setAttribute("type","button");previousButton.setAttribute("aria-label","上一页");previousButton.setAttribute("title","上一页");previousButton.disabled=true;
+  const counter=dock.createEl("span",{cls:"ppt-reviewer-page-count",text:"— / —"});
+  const nextButton=dock.createEl("button",{cls:"ppt-reviewer-page-step",text:"›"});
+  nextButton.setAttribute("type","button");nextButton.setAttribute("aria-label","下一页");nextButton.setAttribute("title","下一页");nextButton.disabled=true;
+  const session={
+    token:`${Date.now()}-${Math.random()}`,pdfPath,root,pages,status:chrome.status,counter,previousButton,nextButton,
+    document:null,loadingTask:null,intersectionObserver:null,resizeObserver:null,resizeTimer:null,
+    wrappers:new Map(),renderPromises:new Map(),pdfRenderTasks:new Map(),renderedPixelWidths:new Map(),seedPages:new Map(),rerenderAfterCurrent:new Set(),
+    pageCount:0,startedAt:Date.now()
+  };
+  previousButton.addEventListener("click",()=>this.goToReviewerPdfPage(session,(this.getReviewerCurrentPage(session.pages)||1)-1));
+  nextButton.addEventListener("click",()=>this.goToReviewerPdfPage(session,(this.getReviewerCurrentPage(session.pages)||1)+1));
+  this.pptReviewerPdfSession=session;
+  this.ensureReviewerFullscreenToggle(root);
+  this.initializeReviewerPdfPreview(session).catch(error=>{
+    if(this.pptReviewerPdfSession!==session)return;
+    console.warn("[New PPT Reviewer] Direct PDF preview unavailable, using image fallback:",error&&error.message?error.message:error);
+    this.disposeReviewerPdfPreview();
+    newPptReviewerV17ImagePreviewUI.call(this,pdfPath);
+    this.finalizeReviewerImageFallback();
+  });
+  return root;
+};
+
+const newPptReviewerV18InitializePdfPreview=Ct.prototype.initializeReviewerPdfPreview;
+Ct.prototype.initializeReviewerPdfPreview=async function(session){
+  await newPptReviewerV18InitializePdfPreview.call(this,session);
+  if(this.pptReviewerPdfSession!==session)return;
+  this.updateReviewerFinalNavigation(session,1);
+  session.status.setText(`${this.pptReviewerRenderEngine||"高保真预览"} · 已就绪`);
+};
+
+const newPptReviewerV18SyncPdfPreview=Ct.prototype.syncReviewerPdfPreview;
+Ct.prototype.syncReviewerPdfPreview=function(session){
+  newPptReviewerV18SyncPdfPreview.call(this,session);
+  if(this.pptReviewerPdfSession!==session)return;
+  const current=this.getReviewerCurrentPage(session.pages)||1;
+  this.updateReviewerFinalNavigation(session,current);
+  session.status.setText(`${this.pptReviewerRenderEngine||"高保真预览"} · 已就绪`);
+};
+
+Ct.prototype.finalizeReviewerImageFallback=function(){
+  const root=this.container.querySelector(".ppt-reviewer-root");
+  if(root)root.addClass("ppt-reviewer-final-root");
+  for(const button of this.container.querySelectorAll("button")){
+    if(/HTML/i.test(String(button.textContent||button.innerText||"")))button.remove();
+  }
+};
+
+Ct.prototype.renderReviewerLoading=function(file){
+  this.container.empty();
+  const root=this.container.createDiv({cls:"ppt-reviewer-root ppt-reviewer-loading-root ppt-reviewer-final-root"});
+  const chrome=this.createReviewerFinalHeader(root,file,{status:"正在准备高保真预览",external:true});
+  const stage=root.createDiv({cls:"ppt-reviewer-final-loading-stage"});
+  const preview=stage.createDiv({cls:"ppt-reviewer-final-loading-slide"});
+  const mark=preview.createDiv({cls:"ppt-reviewer-final-loading-mark"});
+  this.createReviewerSvgIcon(mark,"deck");
+  preview.createDiv({cls:"ppt-reviewer-loading-title",text:"正在准备演示文稿"});
+  preview.createDiv({cls:"ppt-reviewer-loading-copy",text:"转换完成后会自动打开，无需操作"});
+  chrome.status.setAttribute("aria-live","polite");
+};
+
+Ct.prototype.renderReviewerFinalState=function(file,options){
+  this.container.empty();
+  const root=this.container.createDiv({cls:`ppt-reviewer-root ppt-reviewer-handoff-root ppt-reviewer-final-root${options.error?" is-error":""}`});
+  this.createReviewerFinalHeader(root,file,{status:options.status||"高保真预览",external:false});
+  const stage=root.createDiv({cls:"ppt-reviewer-final-state-stage"});
+  const panel=stage.createDiv({cls:"ppt-reviewer-final-state"});
+  const mark=panel.createDiv({cls:"ppt-reviewer-final-state-mark"});
+  this.createReviewerSvgIcon(mark,"deck");
+  panel.createDiv({cls:"ppt-reviewer-loading-title",text:options.title});
+  panel.createDiv({cls:"ppt-reviewer-loading-copy",text:options.copy});
+  const actions=panel.createDiv({cls:"ppt-reviewer-handoff-actions"});
+  for(const action of options.actions||[])this.createReviewerAction(actions,action);
+  return root;
+};
+
+Ct.prototype.renderReviewerExternalOpening=function(file){
+  this.renderReviewerFinalState(file,{status:"正在打开外部应用",title:"正在打开",copy:file.basename,actions:[]});
+};
+
+Ct.prototype.renderReviewerExternalHandoff=function(file){
+  this.renderReviewerFinalState(file,{status:"已交给外部应用",title:"已在外部应用中打开",copy:file.basename,actions:[{label:"返回预览",primary:true,onClick:()=>this.onLoadFile(file)}]});
+};
+
+Ct.prototype.renderReviewerExternalFailure=function(file){
+  this.renderReviewerFinalState(file,{error:true,status:"外部打开失败",title:"未能打开外部应用",copy:"可以重试，或继续在这里预览。",actions:[
+    {label:"重试",onClick:()=>this.selectReviewerExternalMode(file)},
+    {label:"返回预览",primary:true,onClick:()=>this.onLoadFile(file)}
+  ]});
+};
+
+Ct.prototype.renderReviewerLocalizedError=function(error,file=this.file,title="暂时无法打开此演示文稿"){
+  const actions=[];
+  if(file){
+    actions.push({label:"重新预览",onClick:()=>this.onLoadFile(file)});
+    actions.push({label:"外部打开",icon:"external",primary:true,onClick:()=>this.selectReviewerExternalMode(file)});
+  }
+  this.renderReviewerFinalState(file,{error:true,status:"预览暂不可用",title,copy:"请重试，或使用系统中的演示应用打开。",actions});
+  console.warn("[New PPT Reviewer] Preview error:",error&&error.message?error.message:error);
+};
+
+Ct.prototype.renderError=function(error){this.renderReviewerLocalizedError(error,this.file);};
+
+Ct.prototype.selectReviewerExternalMode=async function(file){
+  if(!file)return;
+  const keepPreview=!!this.container.querySelector(".ppt-reviewer-direct-pdf-root");
+  const requestId=keepPreview?this.pptReviewerRequestId:(this.pptReviewerRequestId||0)+1;
+  if(!keepPreview){this.pptReviewerRequestId=requestId;this.file=file;this.renderReviewerExternalOpening(file);}
+  const opened=await this.openWithDefaultApp(file);
+  if(!keepPreview&&this.pptReviewerRequestId!==requestId)return;
+  if(keepPreview){new ht.Notice(opened?"已在外部应用中打开":"外部应用未能打开");return;}
+  if(opened)this.renderReviewerExternalHandoff(file);
+  else this.renderReviewerExternalFailure(file);
+};
+
+Ct.prototype.onLoadFile=async function(file){
+  this.disposeReviewerPdfPreview();
+  const requestId=(this.pptReviewerRequestId||0)+1;
+  this.pptReviewerRequestId=requestId;
+  const isActive=()=>this.pptReviewerRequestId===requestId;
+  this.file=file;
+  this.renderReviewerLoading(file);
+  this.slides=[];this.currentSlide=0;this.mediaCache.clear();this.relationships.clear();
+  try{
+    const pdfPath=await this.renderAccuratePreview(file);
+    if(!isActive())return;
+    if(!pdfPath)throw new Error("No PDF preview was created");
+    this.renderReviewerPdfPreviewUI(pdfPath);
+  }catch(error){
+    if(!isActive())return;
+    this.renderReviewerLocalizedError(error,file);
+  }
+};
+
+// PPT Viewer 1.8.2: Windows-safe distribution and conversion pipeline.
+const pptViewerV182ConvertWithMicrosoftPowerPoint=Ct.prototype.convertWithMicrosoftPowerPoint;
+const pptViewerV182ConvertWithLibreOffice=Ct.prototype.convertWithLibreOffice;
+
+Ct.prototype.getLibreOfficeCandidates=function(){
+  const path=require("path"),env=process.env||{};
+  if(process.platform!=="win32")return [
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/usr/local/bin/soffice","/opt/homebrew/bin/soffice","soffice","libreoffice"
+  ];
+  const candidates=[];
+  for(const base of [env.ProgramW6432,env.ProgramFiles,env["ProgramFiles(x86)"]]){
+    if(base)candidates.push(path.join(base,"LibreOffice","program","soffice.exe"));
+  }
+  if(env.LOCALAPPDATA)candidates.push(path.join(env.LOCALAPPDATA,"Programs","LibreOffice","program","soffice.exe"));
+  if(env.USERPROFILE)candidates.push(path.join(env.USERPROFILE,"scoop","apps","libreoffice","current","program","soffice.exe"));
+  candidates.push("soffice.exe","libreoffice.exe");
+  return Array.from(new Set(candidates));
+};
+
+Ct.prototype.getReviewerPowerShellCandidates=function(){
+  const path=require("path"),root=(process.env&&process.env.SystemRoot)||"C:\\Windows";
+  return Array.from(new Set([
+    path.join(root,"System32","WindowsPowerShell","v1.0","powershell.exe"),
+    "powershell.exe","pwsh.exe"
+  ]));
+};
+
+Ct.prototype.buildReviewerWindowsPowerPointCommand=function(sourcePath,pdfPath){
+  const quote=value=>"'"+String(value).replace(/'/g,"''")+"'";
+  return `$ErrorActionPreference='Stop'; Set-StrictMode -Version 2; $app=$null; $presentation=$null; try { $app=New-Object -ComObject PowerPoint.Application; $presentation=$app.Presentations.Open(${quote(sourcePath)}, $true, $false, $false); $presentation.ExportAsFixedFormat(${quote(pdfPath)}, 2); } finally { if($presentation){ try{$presentation.Close()}catch{}; try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation)}catch{} } if($app){ try{$app.Quit()}catch{}; try{[void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($app)}catch{} } [GC]::Collect(); [GC]::WaitForPendingFinalizers(); }`;
+};
+
+Ct.prototype.convertWithMicrosoftPowerPoint=async function(sourcePath,pdfPath){
+  if(process.platform!=="win32")return pptViewerV182ConvertWithMicrosoftPowerPoint.call(this,sourcePath,pdfPath);
+  const fs=require("fs"),path=require("path"),os=require("os"),crypto=require("crypto"),{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+  const fingerprint=crypto.createHash("sha1").update(`${sourcePath}:${process.pid}:${Date.now()}:${crypto.randomBytes(6).toString("hex")}`).digest("hex").slice(0,16);
+  const stageDir=path.join(os.tmpdir(),`obsidian-ppt-reviewer-win-${fingerprint}`),extension=path.extname(sourcePath)||".pptx";
+  const stagedSource=path.join(stageDir,`source${extension}`),stagedPdf=path.join(stageDir,"preview.pdf");
+  fs.mkdirSync(stageDir,{recursive:true});
+  fs.copyFileSync(sourcePath,stagedSource);
+  let lastError=null;
+  try{
+    const command=this.buildReviewerWindowsPowerPointCommand(stagedSource,stagedPdf);
+    for(const powerShell of this.getReviewerPowerShellCandidates()){
+      try{
+        await run(powerShell,["-NoLogo","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-Command",command],{timeout:120e3,windowsHide:true});
+        lastError=null;
+        break;
+      }catch(error){
+        lastError=error;
+        if(error&&error.code!=="ENOENT")break;
+      }
+    }
+    if(lastError)throw lastError;
+    if(!fs.existsSync(stagedPdf)||fs.statSync(stagedPdf).size<1024)throw new Error("PowerPoint did not create a valid PDF preview");
+    fs.mkdirSync(path.dirname(pdfPath),{recursive:true});
+    fs.copyFileSync(stagedPdf,pdfPath);
+    return pdfPath;
+  }finally{fs.rmSync(stageDir,{recursive:true,force:true});}
+};
+
+Ct.prototype.convertWithLibreOffice=async function(sourcePath,cache){
+  if(process.platform!=="win32")return pptViewerV182ConvertWithLibreOffice.call(this,sourcePath,cache);
+  const fs=require("fs"),path=require("path"),os=require("os"),crypto=require("crypto"),{pathToFileURL}=require("url"),{execFile}=require("child_process"),{promisify}=require("util"),run=promisify(execFile);
+  const fingerprint=crypto.createHash("sha1").update(`${sourcePath}:${process.pid}:${Date.now()}`).digest("hex").slice(0,16);
+  const stageDir=path.join(os.tmpdir(),`obsidian-ppt-reviewer-lo-${fingerprint}`),profileDir=path.join(stageDir,"profile"),extension=path.extname(sourcePath)||".pptx";
+  const stagedSource=path.join(stageDir,`source${extension}`),stagedPdf=path.join(stageDir,"source.pdf");
+  fs.mkdirSync(profileDir,{recursive:true});
+  fs.copyFileSync(sourcePath,stagedSource);
+  let lastError=null;
+  try{
+    for(const binary of this.getLibreOfficeCandidates()){
+      if(path.isAbsolute(binary)&&!fs.existsSync(binary))continue;
+      try{
+        await run(binary,[`-env:UserInstallation=${pathToFileURL(profileDir).href}`,"--headless","--nologo","--nodefault","--nofirststartwizard","--convert-to","pdf","--outdir",stageDir,stagedSource],{timeout:120e3,windowsHide:true});
+        if(fs.existsSync(stagedPdf)&&fs.statSync(stagedPdf).size>=1024){lastError=null;break;}
+        lastError=new Error("LibreOffice did not create a valid PDF preview");
+      }catch(error){lastError=error;}
+    }
+    if(lastError||!fs.existsSync(stagedPdf))throw lastError||new Error("LibreOffice is unavailable");
+    fs.mkdirSync(cache.dir,{recursive:true});
+    fs.copyFileSync(stagedPdf,cache.pdfPath);
+    return cache.pdfPath;
+  }finally{fs.rmSync(stageDir,{recursive:true,force:true});}
+};
+
+Ct.prototype.renderReviewerWindowsCompatibilityFallback=async function(file,requestId,originalError){
+  if(process.platform!=="win32"||String(file&&file.extension||"").toLowerCase()!=="pptx")return false;
+  try{
+    const binary=await this.app.vault.readBinary(file);
+    if(this.pptReviewerRequestId!==requestId)return true;
+    this.slides=[];this.currentSlide=0;this.mediaCache.clear();this.relationships.clear();
+    await this.parsePPTX(binary);
+    if(this.pptReviewerRequestId!==requestId)return true;
+    if(!this.slides.length)throw new Error("No slides found in the presentation");
+    this.pptReviewerRenderEngine="兼容预览";
+    this.renderUI();
+    this.finalizeReviewerImageFallback();
+    new ht.Notice("已自动使用兼容预览");
+    console.info("[PPT Viewer] Windows native conversion unavailable; compatibility preview opened:",originalError&&originalError.message?originalError.message:originalError);
+    return true;
+  }catch(error){
+    console.warn("[PPT Viewer] Windows compatibility preview failed:",error&&error.message?error.message:error);
+    return false;
+  }
+};
+
+Ct.prototype.onLoadFile=async function(file){
+  this.disposeReviewerPdfPreview();
+  const requestId=(this.pptReviewerRequestId||0)+1;
+  this.pptReviewerRequestId=requestId;
+  const isActive=()=>this.pptReviewerRequestId===requestId;
+  this.file=file;
+  this.renderReviewerLoading(file);
+  this.slides=[];this.currentSlide=0;this.mediaCache.clear();this.relationships.clear();
+  try{
+    const pdfPath=await this.renderAccuratePreview(file);
+    if(!isActive())return;
+    if(!pdfPath)throw new Error("No PDF preview was created");
+    this.renderReviewerPdfPreviewUI(pdfPath);
+  }catch(error){
+    if(!isActive())return;
+    if(await this.renderReviewerWindowsCompatibilityFallback(file,requestId,error))return;
+    if(isActive())this.renderReviewerLocalizedError(error,file);
+  }
+};

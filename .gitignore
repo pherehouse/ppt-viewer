@@ -14,6 +14,9 @@ Thumbs.db
 *.log
 *.tmp
 
+# Plugin settings (personal data, do not upload)
+data.json
+
 # AI context files (local-only)
 CLAUDE.md
 AGENTS.md
